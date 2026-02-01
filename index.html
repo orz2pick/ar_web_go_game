@@ -3,14 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>AR 围棋 - 指尖下棋</title>
+    <title>AR 围棋 - 适配版</title>
     
-    <!-- Three.js -->
     <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
-    <!-- MediaPipe Hands -->
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js" crossorigin="anonymous"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
 
     <style>
@@ -19,19 +15,20 @@
             overflow: hidden;
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
             background: #000;
+            touch-action: none;
         }
         
-        #video-input {
+        #video-bg {
             position: absolute;
             top: 0;
             left: 0;
             width: 100%;
             height: 100%;
             object-fit: cover;
-            opacity: 0.4; /* 半透明背景 */
             z-index: 1;
+            opacity: 0.6;
+            transform: scaleX(-1);
             display: none;
-            transform: scaleX(-1); /* 镜像 */
         }
         
         #canvas-container {
@@ -43,7 +40,7 @@
             z-index: 2;
         }
         
-        #ui-layer {
+        #ui {
             position: absolute;
             top: 0;
             left: 0;
@@ -53,19 +50,24 @@
             pointer-events: none;
         }
         
-        #info {
+        .info-box {
             position: absolute;
             top: 40px;
             left: 50%;
             transform: translateX(-50%);
-            background: rgba(0, 0, 0, 0.8);
+            background: rgba(0, 0, 0, 0.85);
             color: white;
-            padding: 12px 24px;
+            padding: 12px 20px;
             border-radius: 20px;
-            font-size: 16px;
+            font-size: 15px;
             text-align: center;
+            max-width: 90%;
             backdrop-filter: blur(10px);
-            transition: all 0.3s;
+            line-height: 1.4;
+        }
+        
+        .error-box {
+            background: rgba(255, 59, 48, 0.9);
         }
         
         .button {
@@ -76,33 +78,56 @@
             color: white;
             border: none;
             padding: 16px 32px;
-            font-size: 18px;
+            font-size: 17px;
             border-radius: 12px;
             cursor: pointer;
             pointer-events: auto;
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
             font-weight: 600;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+            white-space: nowrap;
         }
         
-        #startAR {
-            top: 50%;
-        }
-        
-        #confirmBoard {
-            bottom: 100px;
+        #startBtn { top: 45%; }
+        #fallbackBtn { 
+            top: 55%; 
+            background: #5856D6;
             display: none;
-            background: #34C759;
         }
         
-        #resetGame {
+        #manualControls {
+            position: absolute;
             bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%);
             display: none;
-            background: #FF3B30;
-            font-size: 14px;
-            padding: 12px 24px;
+            gap: 10px;
+            pointer-events: auto;
+            background: rgba(0,0,0,0.7);
+            padding: 10px;
+            border-radius: 30px;
         }
         
-        /* 指尖光标 */
+        .ctrl-btn {
+            background: rgba(255,255,255,0.9);
+            border: none;
+            width: 50px;
+            height: 50px;
+            border-radius: 25px;
+            font-size: 20px;
+            cursor: pointer;
+            margin: 0 5px;
+        }
+        
+        #confirmPlacement {
+            position: absolute;
+            bottom: 100px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: #34C759;
+            display: none;
+            pointer-events: auto;
+        }
+        
         #finger-cursor {
             position: absolute;
             width: 40px;
@@ -112,10 +137,9 @@
             transform: translate(-50%, -50%);
             display: none;
             z-index: 20;
-            box-shadow: 0 0 10px rgba(0, 122, 255, 0.5);
+            pointer-events: none;
         }
         
-        /* 倒计时环 */
         #progress-ring {
             position: absolute;
             width: 50px;
@@ -123,6 +147,7 @@
             transform: translate(-50%, -50%);
             display: none;
             z-index: 21;
+            pointer-events: none;
         }
         
         .progress-circle {
@@ -137,247 +162,196 @@
             transition: stroke-dashoffset 0.1s linear;
         }
         
-        /* 手形提示 */
-        #hand-hint {
+        .mode-tag {
             position: absolute;
-            bottom: 150px;
-            left: 50%;
-            transform: translateX(-50%);
-            background: rgba(255, 255, 255, 0.9);
-            color: #333;
-            padding: 10px 20px;
-            border-radius: 20px;
-            font-size: 14px;
-            display: none;
-            align-items: center;
-            gap: 8px;
-        }
-        
-        .hand-icon {
-            width: 24px;
-            height: 24px;
-            background: #007AFF;
-            mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M9 11.24V7.5C9 6.12 10.12 5 11.5 5S14 6.12 14 7.5v3.74c1.21-.81 2-2.18 2-3.74C16 5.01 13.99 3 11.5 3S7 5.01 7 7.5c0 1.56.79 2.93 2 3.74zm9.84 4.63l-4.54-2.26c-.17-.07-.35-.11-.54-.11H13v-6c0-.83-.67-1.5-1.5-1.5S10 6.67 10 7.5v10.74l-3.43-.72c-.08-.01-.15-.03-.24-.03-.31 0-.59.13-.79.33l-.79.8 4.94 4.94c.27.27.65.44 1.06.44h6.79c.75 0 1.33-.55 1.44-1.28l.75-5.27c.01-.07.02-.14.02-.2 0-.62-.38-1.16-.91-1.38z'/%3E%3C/svg%3E") no-repeat center;
-            mask-size: contain;
+            top: 100px;
+            right: 20px;
+            background: rgba(0,0,0,0.6);
+            color: #FFD700;
+            padding: 6px 12px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: bold;
         }
     </style>
 </head>
 <body>
 
-    <!-- 视频输入（手部检测用） -->
-    <video id="video-input" playsinline></video>
-    
-    <!-- Three.js 容器 -->
+    <video id="video-bg" playsinline muted></video>
     <div id="canvas-container"></div>
     
-    <!-- UI 层 -->
-    <div id="ui-layer">
-        <div id="info">启动 AR，放置棋盘后开始对弈</div>
-        <button id="startAR" class="button">启动 AR 体验</button>
-        <button id="confirmBoard" class="button">确认放置并开始下棋</button>
-        <button id="resetGame" class="button">重新开始</button>
+    <div id="ui">
+        <div id="info" class="info-box">正在检查设备兼容性...</div>
+        <button id="startBtn" class="button">启动 AR 体验</button>
+        <button id="fallbackBtn" class="button">使用手动模式（无需AR）</button>
+        
+        <div id="manualControls">
+            <button class="ctrl-btn" onclick="adjustBoard('up')">↑</button>
+            <button class="ctrl-btn" onclick="adjustBoard('down')">↓</button>
+            <button class="ctrl-btn" onclick="adjustBoard('rotate')">↻</button>
+            <button class="ctrl-btn" onclick="adjustBoard('scale+')">+</button>
+            <button class="ctrl-btn" onclick="adjustBoard('scale-')">−</button>
+        </div>
+        
+        <button id="confirmPlacement" class="button">确认位置，开始下棋</button>
         
         <div id="finger-cursor"></div>
         <svg id="progress-ring" viewBox="0 0 44 44">
             <circle class="progress-circle" cx="22" cy="22" r="20"></circle>
         </svg>
         
-        <div id="hand-hint">
-            <div class="hand-icon"></div>
-            <span>伸出食指，悬停在棋盘点上3秒落子</span>
-        </div>
+        <div id="modeTag" class="mode-tag" style="display:none"></div>
     </div>
 
 <script>
-    // ==================== 全局变量 ====================
+    // ==================== 配置 ====================
+    const CONFIG = {
+        gridCount: 19,
+        boardSize: 0.6, // 米（AR模式）或相对大小（手动模式）
+        hoverTime: 3000,
+        colors: { black: 0x1a1a1a, white: 0xf0f0f0, board: 0xE6B800 }
+    };
+    
+    // ==================== 状态 ====================
+    let state = {
+        mode: 'checking', // 'checking', 'webxr', 'fallback', 'manual'
+        boardPlaced: false,
+        currentPlayer: 'black',
+        stones: [],
+        isHovering: false,
+        hoverStart: 0,
+        boardTransform: { x: 0, y: -0.5, z: -1, rot: 0, scale: 1 }
+    };
+    
     let camera, scene, renderer;
-    let xrSession = null;
-    let hitTestSource = null;
-    let reticle;
-    let goBoard;
-    let boardPlaced = false;
-    let boardPosition = new THREE.Vector3();
-    let boardRotation = new THREE.Quaternion();
+    let xrSession = null, hitTestSource = null, reticle;
+    let goBoard, boardGroup;
+    let hands, cameraUtils;
+    let videoElement;
     
-    // 手部检测
-    let hands;
-    let cameraUtils;
-    let isHandTracking = false;
-    let fingerCursor = document.getElementById('finger-cursor');
-    let progressRing = document.getElementById('progress-ring');
-    let progressCircle = document.querySelector('.progress-circle');
+    // ==================== 初始化检测 ====================
+    function checkCompatibility() {
+        const info = document.getElementById('info');
+        const isHTTPS = location.protocol === 'https:';
+        const isLocalhost = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
+        
+        // iOS WebXR 需要 HTTPS（localhost除外）
+        if (!isHTTPS && !isLocalhost) {
+            info.innerHTML = '⚠️ 请使用 HTTPS 访问<br><small>GitHub Pages 链接自动支持，检查地址栏是否为 https://</small>';
+            info.className = 'info-box error-box';
+            return;
+        }
+        
+        if (!navigator.xr) {
+            info.innerHTML = '检测到 iOS 设备，但 WebXR 未启用<br><small>将使用视频透视模式（效果同样出色）</small>';
+            document.getElementById('fallbackBtn').style.display = 'block';
+        } else {
+            info.textContent = '设备支持 AR，点击启动';
+        }
+    }
     
-    // 游戏状态
-    let currentPlayer = 'black'; // 'black' or 'white'
-    let moveCount = 0;
-    let stones = []; // 存储已放置的棋子
-    let isHovering = false;
-    let hoverStartTime = 0;
-    let hoverGridPoint = null;
-    const HOVER_DURATION = 3000; // 3秒
-    
-    // 棋盘参数
-    const BOARD_SIZE = 0.5; // 米
-    const GRID_COUNT = 19;
-    const CELL_SIZE = BOARD_SIZE / (GRID_COUNT - 1);
-    
-    // ==================== 初始化 ====================
-    function init() {
+    // ==================== Three.js 初始化 ====================
+    function initScene() {
         const container = document.getElementById('canvas-container');
         
         scene = new THREE.Scene();
-        camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 20);
+        camera = new THREE.PerspectiveCamera(70, window.innerWidth/window.innerHeight, 0.01, 20);
         
         // 灯光
         const light = new THREE.DirectionalLight(0xffffff, 1);
         light.position.set(0.5, 1, 0.5);
         light.castShadow = true;
         scene.add(light);
-        
-        const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
-        scene.add(ambientLight);
+        scene.add(new THREE.AmbientLight(0xffffff, 0.6));
         
         // 渲染器
         renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-        renderer.setPixelRatio(window.devicePixelRatio);
         renderer.setSize(window.innerWidth, window.innerHeight);
-        renderer.xr.enabled = true;
+        renderer.setPixelRatio(window.devicePixelRatio);
         renderer.shadowMap.enabled = true;
+        renderer.xr.enabled = true;
         container.appendChild(renderer.domElement);
         
-        // 创建瞄准器
-        const reticleGeo = new THREE.RingGeometry(0.1, 0.15, 32);
-        const reticleMat = new THREE.MeshBasicMaterial({ 
-            color: 0x007AFF, 
-            transparent: true, 
-            opacity: 0.6,
-            side: THREE.DoubleSide 
+        // 创建棋盘
+        createGoBoard();
+        
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth/window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
         });
-        reticle = new THREE.Mesh(reticleGeo, reticleMat);
-        reticle.rotation.x = -Math.PI / 2;
-        reticle.visible = false;
-        scene.add(reticle);
+    }
+    
+    function createGoBoard() {
+        boardGroup = new THREE.Group();
         
-        window.addEventListener('resize', onWindowResize);
-    }
-    
-    function onWindowResize() {
-        camera.aspect = window.innerWidth / window.innerHeight;
-        camera.updateProjectionMatrix();
-        renderer.setSize(window.innerWidth, window.innerHeight);
-    }
-    
-    // ==================== 棋盘创建 ====================
-    function createGoBoardTexture() {
+        // 棋盘纹理
         const canvas = document.createElement('canvas');
-        canvas.width = 1024;
-        canvas.height = 1024;
+        canvas.width = 1024; canvas.height = 1024;
         const ctx = canvas.getContext('2d');
-        
-        // 木质背景
-        ctx.fillStyle = '#E6B800';
-        ctx.fillRect(0, 0, 1024, 1024);
+        ctx.fillStyle = '#E6B800'; ctx.fillRect(0,0,1024,1024);
         
         // 木纹
         ctx.strokeStyle = '#D4A000';
-        ctx.lineWidth = 2;
-        for (let i = 0; i < 1024; i += 20) {
-            ctx.beginPath();
-            ctx.moveTo(0, i);
-            ctx.lineTo(1024, i);
-            ctx.stroke();
+        for(let i=0; i<1024; i+=20) {
+            ctx.beginPath(); ctx.moveTo(0,i); ctx.lineTo(1024,i); ctx.stroke();
         }
         
-        // 边框
-        ctx.strokeStyle = '#8B4513';
-        ctx.lineWidth = 24;
-        ctx.strokeRect(48, 48, 928, 928);
+        // 边框和网格
+        ctx.strokeStyle = '#8B4513'; ctx.lineWidth = 24;
+        ctx.strokeRect(48,48,928,928);
+        ctx.strokeStyle = '#1a1a1a'; ctx.lineWidth = 3;
+        const margin=90, size=844, step=size/(CONFIG.gridCount-1);
         
-        // 网格线
-        ctx.strokeStyle = '#1a1a1a';
-        ctx.lineWidth = 3;
-        const margin = 90;
-        const size = 844;
-        const step = size / (GRID_COUNT - 1);
-        
-        for (let i = 0; i < GRID_COUNT; i++) {
-            const pos = margin + i * step;
-            ctx.beginPath();
-            ctx.moveTo(margin, pos);
-            ctx.lineTo(margin + size, pos);
-            ctx.stroke();
-            
-            ctx.beginPath();
-            ctx.moveTo(pos, margin);
-            ctx.lineTo(pos, margin + size);
-            ctx.stroke();
+        for(let i=0; i<CONFIG.gridCount; i++) {
+            const pos = margin + i*step;
+            ctx.beginPath(); ctx.moveTo(margin,pos); ctx.lineTo(margin+size,pos); ctx.stroke();
+            ctx.beginPath(); ctx.moveTo(pos,margin); ctx.lineTo(pos,margin+size); ctx.stroke();
         }
         
         // 星位
-        const stars = [3, 9, 15];
         ctx.fillStyle = '#1a1a1a';
-        stars.forEach(x => {
-            stars.forEach(y => {
+        [3,9,15].forEach(x => {
+            [3,9,15].forEach(y => {
                 ctx.beginPath();
-                ctx.arc(margin + x * step, margin + y * step, 10, 0, Math.PI * 2);
+                ctx.arc(margin+x*step, margin+y*step, 10, 0, Math.PI*2);
                 ctx.fill();
             });
         });
         
         const texture = new THREE.CanvasTexture(canvas);
-        texture.anisotropy = 16;
-        return texture;
-    }
-    
-    function createGoBoard() {
-        const group = new THREE.Group();
-        
-        // 棋盘主体
-        const geometry = new THREE.BoxGeometry(BOARD_SIZE, 0.02, BOARD_SIZE);
-        const material = new THREE.MeshStandardMaterial({
-            map: createGoBoardTexture(),
-            roughness: 0.7,
-            metalness: 0.1
-        });
+        const geometry = new THREE.BoxGeometry(1, 0.02, 1);
+        const material = new THREE.MeshStandardMaterial({ map: texture, roughness: 0.7 });
         const board = new THREE.Mesh(geometry, material);
-        board.position.y = 0.01;
         board.receiveShadow = true;
-        group.add(board);
+        boardGroup.add(board);
         
         // 棋盘腿
-        const legGeo = new THREE.CylinderGeometry(0.025, 0.02, 0.15, 16);
+        const legGeo = new THREE.CylinderGeometry(0.03, 0.02, 0.15, 16);
         const legMat = new THREE.MeshStandardMaterial({ color: 0x8B4513 });
-        const offset = BOARD_SIZE * 0.4;
-        const positions = [
-            [-offset, -0.075, -offset],
-            [offset, -0.075, -offset],
-            [-offset, -0.075, offset],
-            [offset, -0.075, offset]
-        ];
-        
-        positions.forEach(pos => {
+        [[-0.4,-0.075,-0.4], [0.4,-0.075,-0.4], [-0.4,-0.075,0.4], [0.4,-0.075,0.4]].forEach(pos => {
             const leg = new THREE.Mesh(legGeo, legMat);
             leg.position.set(...pos);
             leg.castShadow = true;
-            group.add(leg);
+            boardGroup.add(leg);
         });
         
-        return group;
+        scene.add(boardGroup);
+        updateBoardTransform();
     }
     
-    // ==================== WebXR 阶段 ====================
-    async function startAR() {
-        if (!navigator.xr) {
-            alert('您的设备不支持 WebXR');
-            return;
-        }
-        
+    function updateBoardTransform() {
+        if (!boardGroup) return;
+        boardGroup.position.set(state.boardTransform.x, state.boardTransform.y, state.boardTransform.z);
+        boardGroup.rotation.y = state.boardTransform.rot;
+        boardGroup.scale.setScalar(state.boardTransform.scale);
+    }
+    
+    // ==================== WebXR 模式 ====================
+    async function startWebXR() {
         try {
             const supported = await navigator.xr.isSessionSupported('immersive-ar');
-            if (!supported) {
-                alert('您的设备不支持 AR 模式');
-                return;
-            }
+            if (!supported) throw new Error('AR not supported');
             
             xrSession = await navigator.xr.requestSession('immersive-ar', {
                 requiredFeatures: ['hit-test'],
@@ -385,84 +359,122 @@
                 domOverlay: { root: document.body }
             });
             
-            renderer.xr.setReferenceSpaceType('local');
             await renderer.xr.setSession(xrSession);
+            renderer.xr.setReferenceSpaceType('local');
             
-            document.getElementById('startAR').style.display = 'none';
-            document.getElementById('info').textContent = '移动手机寻找平面，点击屏幕放置棋盘';
+            state.mode = 'webxr';
+            setupWebXR();
             
-            xrSession.addEventListener('end', onXRSessionEnded);
-            xrSession.addEventListener('select', onXRSelect);
+            document.getElementById('startBtn').style.display = 'none';
+            document.getElementById('info').textContent = '移动手机寻找桌面，点击屏幕放置';
             
-            setupHitTest();
-            animate();
-            
-        } catch (e) {
-            alert('启动 AR 失败: ' + e.message);
+        } catch(e) {
+            console.error('WebXR failed:', e);
+            startFallbackMode();
         }
     }
     
-    function setupHitTest() {
-        if (!xrSession) return;
+    function setupWebXR() {
+        // 创建瞄准器
+        const ring = new THREE.RingGeometry(0.1, 0.15, 32);
+        const mat = new THREE.MeshBasicMaterial({ color: 0x007AFF, transparent: true, opacity: 0.6, side: THREE.DoubleSide });
+        reticle = new THREE.Mesh(ring, mat);
+        reticle.rotation.x = -Math.PI/2;
+        reticle.visible = false;
+        scene.add(reticle);
         
-        xrSession.requestReferenceSpace('viewer').then(refSpace => {
-            xrSession.requestHitTestSource({ space: refSpace }).then(source => {
+        xrSession.requestReferenceSpace('viewer').then(space => {
+            xrSession.requestHitTestSource({ space }).then(source => {
                 hitTestSource = source;
             });
         });
+        
+        xrSession.addEventListener('select', onXRSelect);
+        renderer.setAnimationLoop(onXRFrame);
+    }
+    
+    function onXRFrame(time, frame) {
+        if (frame && hitTestSource) {
+            const refSpace = renderer.xr.getReferenceSpace();
+            const results = frame.getHitTestResults(hitTestSource);
+            
+            if (results.length > 0) {
+                const pose = results[0].getPose(refSpace);
+                reticle.visible = true;
+                reticle.matrix.fromArray(pose.transform.matrix);
+            } else {
+                reticle.visible = false;
+            }
+        }
+        renderer.render(scene, camera);
     }
     
     function onXRSelect() {
-        if (!boardPlaced && reticle.visible) {
-            // 放置棋盘
-            goBoard = createGoBoard();
-            goBoard.position.setFromMatrixPosition(reticle.matrix);
-            
-            // 保存位置
-            boardPosition.copy(goBoard.position);
-            reticle.matrix.decompose(new THREE.Vector3(), boardRotation, new THREE.Vector3());
-            
-            scene.add(goBoard);
-            boardPlaced = true;
+        if (reticle.visible && !state.boardPlaced) {
+            boardGroup.position.setFromMatrixPosition(reticle.matrix);
+            boardGroup.quaternion.setFromRotationMatrix(reticle.matrix);
+            state.boardPlaced = true;
             reticle.visible = false;
             
-            // 显示确认按钮
-            document.getElementById('confirmBoard').style.display = 'block';
-            document.getElementById('info').textContent = '棋盘已放置，点击确认开始下棋';
+            document.getElementById('info').textContent = '棋盘已放置，启动手部追踪...';
+            setTimeout(startHandTracking, 500);
+        }
+    }
+    
+    // ==================== 降级/手动模式 ====================
+    function startFallbackMode() {
+        state.mode = 'fallback';
+        videoElement = document.getElementById('video-bg');
+        videoElement.style.display = 'block';
+        
+        // 请求摄像头
+        navigator.mediaDevices.getUserMedia({ 
+            video: { facingMode: 'environment' }, 
+            audio: false 
+        }).then(stream => {
+            videoElement.srcObject = stream;
+            videoElement.play();
             
-            // 添加放置动画
-            goBoard.scale.set(0, 0, 0);
-            let s = 0;
-            const anim = setInterval(() => {
-                s += 0.1;
-                goBoard.scale.set(s, s, s);
-                if (s >= 1) clearInterval(anim);
-            }, 16);
-        }
+            document.getElementById('startBtn').style.display = 'none';
+            document.getElementById('fallbackBtn').style.display = 'none';
+            document.getElementById('manualControls').style.display = 'flex';
+            document.getElementById('confirmPlacement').style.display = 'block';
+            document.getElementById('info').innerHTML = '手动调整棋盘位置<br>使用下方按钮对齐到桌面';
+            document.getElementById('modeTag').textContent = '手动模式';
+            document.getElementById('modeTag').style.display = 'block';
+            
+            // 设置初始位置
+            state.boardTransform = { x: 0, y: -0.3, z: -0.8, rot: 0, scale: 0.5 };
+            updateBoardTransform();
+            
+            renderer.setAnimationLoop(() => renderer.render(scene, camera));
+        }).catch(err => {
+            document.getElementById('info').innerHTML = '无法访问摄像头<br>请检查权限设置';
+        });
     }
     
-    function onXRSessionEnded() {
-        xrSession = null;
-        hitTestSource = null;
+    function adjustBoard(type) {
+        switch(type) {
+            case 'up': state.boardTransform.y += 0.05; break;
+            case 'down': state.boardTransform.y -= 0.05; break;
+            case 'rotate': state.boardTransform.rot += Math.PI/8; break;
+            case 'scale+': state.boardTransform.scale *= 1.1; break;
+            case 'scale-': state.boardTransform.scale *= 0.9; break;
+        }
+        updateBoardTransform();
     }
     
-    // ==================== 手部检测阶段 ====================
-    async function startHandTracking() {
-        // 退出 WebXR，释放相机
-        if (xrSession) {
-            await xrSession.end();
-        }
+    document.getElementById('confirmPlacement').addEventListener('click', () => {
+        state.boardPlaced = true;
+        document.getElementById('manualControls').style.display = 'none';
+        document.getElementById('confirmPlacement').style.display = 'none';
+        startHandTracking();
+    });
+    
+    // ==================== 手部追踪（通用） ====================
+    function startHandTracking() {
+        document.getElementById('info').textContent = '伸出食指，悬停3秒落子（黑先）';
         
-        document.getElementById('video-input').style.display = 'block';
-        document.getElementById('confirmBoard').style.display = 'none';
-        document.getElementById('resetGame').style.display = 'block';
-        document.getElementById('hand-hint').style.display = 'flex';
-        document.getElementById('info').textContent = '黑方先行';
-        
-        // 设置视频背景
-        const video = document.getElementById('video-input');
-        
-        // 初始化 MediaPipe Hands
         hands = new Hands({locateFile: (file) => {
             return `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`;
         }});
@@ -476,227 +488,152 @@
         
         hands.onResults(onHandResults);
         
-        // 启动相机
-        cameraUtils = new Camera(video, {
+        // 使用前置摄像头（镜像）或后置
+        cameraUtils = new Camera(document.createElement('video'), {
             onFrame: async () => {
-                await hands.send({image: video});
+                await hands.send({image: cameraUtils.video});
             },
             width: 1280,
             height: 720
         });
         
         cameraUtils.start();
-        isHandTracking = true;
-        
-        // 调整 Three.js 为透明背景，叠加在视频上
-        renderer.setClearColor(0x000000, 0);
-        renderer.xr.enabled = false; // 禁用 XR，使用普通渲染
-        
-        // 设置相机位置（模拟 AR 视角）
-        camera.position.set(0, 1.5, 1);
-        camera.lookAt(boardPosition);
-        
-        // 开始渲染循环
-        animateHandMode();
     }
     
     function onHandResults(results) {
+        const cursor = document.getElementById('finger-cursor');
+        const ring = document.getElementById('progress-ring');
+        
         if (!results.multiHandLandmarks || results.multiHandLandmarks.length === 0) {
-            fingerCursor.style.display = 'none';
-            progressRing.style.display = 'none';
-            isHovering = false;
+            cursor.style.display = 'none';
+            ring.style.display = 'none';
+            state.isHovering = false;
             return;
         }
         
-        const landmarks = results.multiHandLandmarks[0];
-        const indexTip = landmarks[8]; // 食指指尖
+        const tip = results.multiHandLandmarks[0][8]; // 食指尖
+        const x = (1 - tip.x) * window.innerWidth;
+        const y = tip.y * window.innerHeight;
         
-        // 转换为屏幕坐标（镜像处理）
-        const x = (1 - indexTip.x) * window.innerWidth;
-        const y = indexTip.y * window.innerHeight;
+        cursor.style.display = 'block';
+        cursor.style.left = x + 'px';
+        cursor.style.top = y + 'px';
         
-        // 更新指尖光标
-        fingerCursor.style.display = 'block';
-        fingerCursor.style.left = x + 'px';
-        fingerCursor.style.top = y + 'px';
-        
-        // 射线检测（将屏幕坐标转为世界坐标）
-        checkBoardIntersection(x, y);
-    }
-    
-    function checkBoardIntersection(screenX, screenY) {
-        // 归一化设备坐标
+        // 射线检测
         const mouse = new THREE.Vector2();
-        mouse.x = (screenX / window.innerWidth) * 2 - 1;
-        mouse.y = -(screenY / window.innerHeight) * 2 + 1;
+        mouse.x = (x / window.innerWidth) * 2 - 1;
+        mouse.y = -(y / window.innerHeight) * 2 + 1;
         
-        // 创建射线
         const raycaster = new THREE.Raycaster();
         raycaster.setFromCamera(mouse, camera);
         
-        // 与棋盘平面相交（假设棋盘在水平面上）
-        const planeY = boardPosition.y + 0.02; // 棋盘表面高度
-        const distance = (planeY - raycaster.ray.origin.y) / raycaster.ray.direction.y;
+        // 与棋盘平面相交
+        const boardY = boardGroup.position.y + 0.01;
+        const distance = (boardY - raycaster.ray.origin.y) / raycaster.ray.direction.y;
         
         if (distance > 0) {
-            const intersectPoint = new THREE.Vector3();
-            raycaster.ray.at(distance, intersectPoint);
+            const point = new THREE.Vector3();
+            raycaster.ray.at(distance, point);
             
-            // 检查是否在棋盘范围内
-            const halfSize = BOARD_SIZE / 2;
-            const localX = intersectPoint.x - boardPosition.x;
-            const localZ = intersectPoint.z - boardPosition.z;
+            // 转换为棋盘本地坐标
+            const localX = point.x - boardGroup.position.x;
+            const localZ = point.z - boardGroup.position.z;
+            const half = 0.5 * boardGroup.scale.x;
             
-            if (Math.abs(localX) <= halfSize && Math.abs(localZ) <= halfSize) {
-                // 吸附到最近的网格点
-                const gridX = Math.round((localX + halfSize) / CELL_SIZE);
-                const gridZ = Math.round((localZ + halfSize) / CELL_SIZE);
+            if (Math.abs(localX) <= half && Math.abs(localZ) <= half) {
+                const step = (half * 2) / (CONFIG.gridCount - 1);
+                const gx = Math.round((localX + half) / step);
+                const gz = Math.round((localZ + half) / step);
                 
-                // 限制在 0-18 范围内
-                const clampedX = Math.max(0, Math.min(GRID_COUNT - 1, gridX));
-                const clampedZ = Math.max(0, Math.min(GRID_COUNT - 1, gridZ));
-                
-                // 计算世界坐标
-                const worldX = boardPosition.x - halfSize + clampedX * CELL_SIZE;
-                const worldZ = boardPosition.z - halfSize + clampedZ * CELL_SIZE;
-                
-                // 检查该位置是否已有棋子
-                const existingStone = stones.find(s => 
-                    Math.abs(s.gridX - clampedX) < 0.1 && 
-                    Math.abs(s.gridZ - clampedZ) < 0.1
-                );
-                
-                if (!existingStone) {
-                    handleHover(clampedX, clampedZ, worldX, worldZ);
+                // 检查是否已有子
+                const exists = state.stones.find(s => s.gx === gx && s.gz === gz);
+                if (!exists) {
+                    handleHover(gx, gz, x, y);
                     return;
                 }
             }
         }
         
-        // 未悬停在有效位置
         resetHover();
     }
     
-    function handleHover(gridX, gridZ, worldX, worldZ) {
-        // 如果移动到新的点，重置计时
-        if (!hoverGridPoint || hoverGridPoint.x !== gridX || hoverGridPoint.z !== gridZ) {
-            hoverGridPoint = { x: gridX, z: gridZ, worldX, worldZ };
-            hoverStartTime = Date.now();
-            isHovering = true;
+    function handleHover(gx, gz, screenX, screenY) {
+        const ring = document.getElementById('progress-ring');
+        
+        if (!state.isHovering || state.hoverGrid?.gx !== gx || state.hoverGrid?.gz !== gz) {
+            state.isHovering = true;
+            state.hoverGrid = { gx, gz };
+            state.hoverStart = Date.now();
             
-            // 显示进度环
-            progressRing.style.display = 'block';
-            progressRing.style.left = (fingerCursor.offsetLeft) + 'px';
-            progressRing.style.top = (fingerCursor.offsetTop) + 'px';
-            progressCircle.style.strokeDashoffset = 126;
-        } else {
-            // 计算进度
-            const elapsed = Date.now() - hoverStartTime;
-            const progress = Math.min(elapsed / HOVER_DURATION, 1);
-            const offset = 126 - (progress * 126);
-            progressCircle.style.strokeDashoffset = offset;
-            
-            // 3秒到达，放置棋子
-            if (progress >= 1) {
-                placeStone(gridX, gridZ, worldX, worldZ);
-                resetHover();
-            }
+            ring.style.display = 'block';
+            ring.style.left = screenX + 'px';
+            ring.style.top = screenY + 'px';
+        }
+        
+        const elapsed = Date.now() - state.hoverStart;
+        const progress = Math.min(elapsed / CONFIG.hoverTime, 1);
+        document.querySelector('.progress-circle').style.strokeDashoffset = 126 - (progress * 126);
+        
+        if (progress >= 1) {
+            placeStone(gx, gz);
+            resetHover();
         }
     }
     
     function resetHover() {
-        isHovering = false;
-        hoverGridPoint = null;
-        progressRing.style.display = 'none';
+        state.isHovering = false;
+        state.hoverGrid = null;
+        document.getElementById('progress-ring').style.display = 'none';
     }
     
-    function placeStone(gridX, gridZ, x, z) {
-        const geometry = new THREE.SphereGeometry(CELL_SIZE * 0.4, 32, 32);
+    function placeStone(gx, gz) {
+        const geometry = new THREE.SphereGeometry(0.04, 32, 32);
         const material = new THREE.MeshStandardMaterial({
-            color: currentPlayer === 'black' ? 0x1a1a1a : 0xf0f0f0,
-            roughness: 0.2,
-            metalness: 0.1
+            color: state.currentPlayer === 'black' ? CONFIG.colors.black : CONFIG.colors.white,
+            roughness: 0.2
         });
         
         const stone = new THREE.Mesh(geometry, material);
-        stone.position.set(x, boardPosition.y + 0.04, z);
-        stone.castShadow = true;
-        stone.receiveShadow = true;
+        const half = 0.5 * boardGroup.scale.x;
+        const step = (half * 2) / (CONFIG.gridCount - 1);
         
-        // 添加落子动画
-        stone.scale.set(0, 0, 0);
-        scene.add(stone);
+        stone.position.x = boardGroup.position.x - half + gx * step;
+        stone.position.z = boardGroup.position.z - half + gz * step;
+        stone.position.y = boardGroup.position.y + 0.03;
         
+        stone.scale.set(0,0,0);
+        boardGroup.add(stone);
+        
+        // 动画
         let s = 0;
         const anim = setInterval(() => {
             s += 0.2;
-            stone.scale.set(s, s, s);
-            if (s >= 1) {
-                clearInterval(anim);
-                // 添加轻微弹跳效果
-                stone.position.y += 0.02;
-                setTimeout(() => { stone.position.y -= 0.02; }, 100);
-            }
+            stone.scale.set(s,s,s);
+            if (s >= 1) clearInterval(anim);
         }, 16);
         
-        stones.push({ gridX, gridZ, mesh: stone, player: currentPlayer });
+        state.stones.push({ gx, gz, mesh: stone });
+        state.currentPlayer = state.currentPlayer === 'black' ? 'white' : 'black';
         
-        // 切换玩家
-        currentPlayer = currentPlayer === 'black' ? 'white' : 'black';
-        moveCount++;
-        
-        // 更新 UI
-        const playerText = currentPlayer === 'black' ? '黑方' : '白方';
-        document.getElementById('info').textContent = `第 ${moveCount} 手 - 当前：${playerText}`;
-        document.getElementById('info').style.background = currentPlayer === 'black' ? 
-            'rgba(0,0,0,0.8)' : 'rgba(255,255,255,0.9)';
-        document.getElementById('info').style.color = currentPlayer === 'black' ? 'white' : 'black';
-    }
-    
-    // ==================== 渲染循环 ====================
-    function animate() {
-        renderer.setAnimationLoop((timestamp, frame) => {
-            if (frame && hitTestSource && !boardPlaced) {
-                const refSpace = renderer.xr.getReferenceSpace();
-                const results = frame.getHitTestResults(hitTestSource);
-                
-                if (results.length > 0) {
-                    const pose = results[0].getPose(refSpace);
-                    reticle.visible = true;
-                    reticle.matrix.fromArray(pose.transform.matrix);
-                } else {
-                    reticle.visible = false;
-                }
-            }
-            
-            renderer.render(scene, camera);
-        });
-    }
-    
-    function animateHandMode() {
-        if (!isHandTracking) return;
-        requestAnimationFrame(animateHandMode);
-        
-        // 简单的相机跟随（可选：添加陀螺仪控制）
-        renderer.render(scene, camera);
+        const text = state.currentPlayer === 'black' ? '黑方' : '白方';
+        document.getElementById('info').textContent = `第 ${state.stones.length} 手 - 当前：${text}`;
     }
     
     // ==================== 事件绑定 ====================
-    document.getElementById('startAR').addEventListener('click', () => {
-        init();
-        startAR();
+    window.onload = () => {
+        initScene();
+        checkCompatibility();
+    };
+    
+    document.getElementById('startBtn').addEventListener('click', () => {
+        if (navigator.xr) startWebXR();
+        else startFallbackMode();
     });
     
-    document.getElementById('confirmBoard').addEventListener('click', () => {
-        startHandTracking();
-    });
+    document.getElementById('fallbackBtn').addEventListener('click', startFallbackMode);
     
-    document.getElementById('resetGame').addEventListener('click', () => {
-        location.reload();
-    });
-    
-    // 防止页面滚动
-    document.addEventListener('touchmove', (e) => e.preventDefault(), { passive: false });
+    // 阻止默认触摸行为
+    document.addEventListener('touchmove', e => e.preventDefault(), { passive: false });
 </script>
 
 </body>
