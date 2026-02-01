@@ -2,638 +2,627 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>AR 围棋 - 适配版</title>
-    
-    <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
-
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>AR Web 兼容性检测器</title>
     <style>
-        body {
+        * {
             margin: 0;
-            overflow: hidden;
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-            background: #000;
-            touch-action: none;
+            padding: 0;
+            box-sizing: border-box;
         }
         
-        #video-bg {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            object-fit: cover;
-            z-index: 1;
-            opacity: 0.6;
-            transform: scaleX(-1);
-            display: none;
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+            min-height: 100vh;
+            color: #fff;
+            padding: 20px;
         }
         
-        #canvas-container {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            z-index: 2;
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
         }
         
-        #ui {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            z-index: 10;
-            pointer-events: none;
-        }
-        
-        .info-box {
-            position: absolute;
-            top: 40px;
-            left: 50%;
-            transform: translateX(-50%);
-            background: rgba(0, 0, 0, 0.85);
-            color: white;
-            padding: 12px 20px;
-            border-radius: 20px;
-            font-size: 15px;
+        header {
             text-align: center;
-            max-width: 90%;
+            padding: 30px 0;
+        }
+        
+        h1 {
+            font-size: 28px;
+            margin-bottom: 8px;
+            font-weight: 700;
+        }
+        
+        .subtitle {
+            opacity: 0.9;
+            font-size: 14px;
+        }
+        
+        .device-info {
+            background: rgba(255,255,255,0.1);
             backdrop-filter: blur(10px);
-            line-height: 1.4;
+            border-radius: 16px;
+            padding: 15px 20px;
+            margin-bottom: 20px;
+            font-size: 13px;
+            border: 1px solid rgba(255,255,255,0.2);
         }
         
-        .error-box {
-            background: rgba(255, 59, 48, 0.9);
+        .device-info div {
+            margin: 5px 0;
+            display: flex;
+            justify-content: space-between;
         }
         
-        .button {
-            position: absolute;
-            left: 50%;
-            transform: translateX(-50%);
-            background: #007AFF;
-            color: white;
-            border: none;
-            padding: 16px 32px;
-            font-size: 17px;
+        .device-info span {
+            opacity: 0.8;
+        }
+        
+        .check-list {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            margin-bottom: 30px;
+        }
+        
+        .check-item {
+            background: rgba(255,255,255,0.95);
+            color: #333;
             border-radius: 12px;
-            cursor: pointer;
-            pointer-events: auto;
+            padding: 16px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            transition: transform 0.2s;
+        }
+        
+        .check-item:hover {
+            transform: translateX(5px);
+        }
+        
+        .icon {
+            width: 40px;
+            height: 40px;
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 20px;
+            flex-shrink: 0;
+        }
+        
+        .status-yes { background: #34C759; color: white; }
+        .status-no { background: #FF3B30; color: white; }
+        .status-maybe { background: #FF9500; color: white; }
+        .status-checking { background: #8E8E93; color: white; animation: pulse 1.5s infinite; }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.6; }
+        }
+        
+        .check-content {
+            flex: 1;
+        }
+        
+        .check-title {
             font-weight: 600;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+            font-size: 16px;
+            margin-bottom: 2px;
+        }
+        
+        .check-desc {
+            font-size: 13px;
+            color: #666;
+            line-height: 1.3;
+        }
+        
+        .status-badge {
+            font-size: 12px;
+            padding: 4px 10px;
+            border-radius: 20px;
+            font-weight: 600;
             white-space: nowrap;
         }
         
-        #startBtn { top: 45%; }
-        #fallbackBtn { 
-            top: 55%; 
-            background: #5856D6;
-            display: none;
+        .badge-success { background: #E8F5E9; color: #2E7D32; }
+        .badge-error { background: #FFEBEE; color: #C62828; }
+        .badge-warning { background: #FFF3E0; color: #EF6C00; }
+        
+        .action-area {
+            background: rgba(255,255,255,0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 16px;
+            padding: 20px;
+            text-align: center;
+            border: 1px solid rgba(255,255,255,0.2);
         }
         
-        #manualControls {
-            position: absolute;
-            bottom: 30px;
-            left: 50%;
-            transform: translateX(-50%);
-            display: none;
-            gap: 10px;
-            pointer-events: auto;
-            background: rgba(0,0,0,0.7);
-            padding: 10px;
-            border-radius: 30px;
-        }
-        
-        .ctrl-btn {
-            background: rgba(255,255,255,0.9);
+        .btn {
+            background: #fff;
+            color: #2a5298;
             border: none;
-            width: 50px;
-            height: 50px;
+            padding: 14px 32px;
             border-radius: 25px;
-            font-size: 20px;
+            font-size: 16px;
+            font-weight: 600;
             cursor: pointer;
-            margin: 0 5px;
+            margin: 5px;
+            transition: all 0.3s;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.2);
         }
         
-        #confirmPlacement {
-            position: absolute;
-            bottom: 100px;
-            left: 50%;
-            transform: translateX(-50%);
-            background: #34C759;
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 16px rgba(0,0,0,0.3);
+        }
+        
+        .btn:active {
+            transform: translateY(0);
+        }
+        
+        .btn-secondary {
+            background: transparent;
+            color: #fff;
+            border: 2px solid rgba(255,255,255,0.5);
+        }
+        
+        .summary {
+            margin-top: 15px;
+            padding: 15px;
+            background: rgba(0,0,0,0.2);
+            border-radius: 10px;
+            font-size: 14px;
+            line-height: 1.5;
+            text-align: left;
             display: none;
-            pointer-events: auto;
         }
         
-        #finger-cursor {
-            position: absolute;
-            width: 40px;
-            height: 40px;
-            border: 3px solid #007AFF;
+        .summary.show {
+            display: block;
+            animation: fadeIn 0.3s;
+        }
+        
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(-10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        
+        .score-circle {
+            width: 80px;
+            height: 80px;
             border-radius: 50%;
-            transform: translate(-50%, -50%);
-            display: none;
-            z-index: 20;
-            pointer-events: none;
-        }
-        
-        #progress-ring {
-            position: absolute;
-            width: 50px;
-            height: 50px;
-            transform: translate(-50%, -50%);
-            display: none;
-            z-index: 21;
-            pointer-events: none;
-        }
-        
-        .progress-circle {
-            fill: none;
-            stroke: #34C759;
-            stroke-width: 4;
-            stroke-linecap: round;
-            transform: rotate(-90deg);
-            transform-origin: 50% 50%;
-            stroke-dasharray: 126;
-            stroke-dashoffset: 126;
-            transition: stroke-dashoffset 0.1s linear;
-        }
-        
-        .mode-tag {
-            position: absolute;
-            top: 100px;
-            right: 20px;
-            background: rgba(0,0,0,0.6);
-            color: #FFD700;
-            padding: 6px 12px;
-            border-radius: 12px;
-            font-size: 12px;
+            background: conic-gradient(#34C759 var(--score), rgba(255,255,255,0.3) 0);
+            margin: 0 auto 15px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
             font-weight: bold;
+            position: relative;
         }
+        
+        .score-circle::before {
+            content: '';
+            position: absolute;
+            width: 65px;
+            height: 65px;
+            background: rgba(255,255,255,0.2);
+            border-radius: 50%;
+        }
+        
+        .score-text {
+            position: relative;
+            z-index: 1;
+        }
+        
+        code {
+            background: rgba(0,0,0,0.3);
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+        }
+        
+        .footer {
+            text-align: center;
+            margin-top: 30px;
+            opacity: 0.7;
+            font-size: 12px;
+        }
+        
+        /* 结果颜色 */
+        .supported { border-left: 4px solid #34C759; }
+        .unsupported { border-left: 4px solid #FF3B30; }
+        .partial { border-left: 4px solid #FF9500; }
     </style>
 </head>
 <body>
 
-    <video id="video-bg" playsinline muted></video>
-    <div id="canvas-container"></div>
+<div class="container">
+    <header>
+        <h1>🥽 AR Web 检测器</h1>
+        <div class="subtitle">检测您的设备是否支持增强现实网页应用</div>
+    </header>
     
-    <div id="ui">
-        <div id="info" class="info-box">正在检查设备兼容性...</div>
-        <button id="startBtn" class="button">启动 AR 体验</button>
-        <button id="fallbackBtn" class="button">使用手动模式（无需AR）</button>
-        
-        <div id="manualControls">
-            <button class="ctrl-btn" onclick="adjustBoard('up')">↑</button>
-            <button class="ctrl-btn" onclick="adjustBoard('down')">↓</button>
-            <button class="ctrl-btn" onclick="adjustBoard('rotate')">↻</button>
-            <button class="ctrl-btn" onclick="adjustBoard('scale+')">+</button>
-            <button class="ctrl-btn" onclick="adjustBoard('scale-')">−</button>
+    <div class="device-info">
+        <div><span>设备型号</span> <strong id="deviceModel">检测中...</strong></div>
+        <div><span>操作系统</span> <strong id="osVersion">检测中...</strong></div>
+        <div><span>浏览器</span> <strong id="browserInfo">检测中...</strong></div>
+        <div><span>用户代理</span> <code id="userAgent" style="font-size:10px;max-width:200px;overflow:hidden;text-overflow:ellipsis;">-</code></div>
+    </div>
+    
+    <div class="check-list" id="checkList">
+        <!-- 检测项将通过 JS 生成 -->
+    </div>
+    
+    <div class="action-area">
+        <div class="score-circle" id="scoreCircle" style="display:none;">
+            <span class="score-text" id="scoreText">0/8</span>
         </div>
         
-        <button id="confirmPlacement" class="button">确认位置，开始下棋</button>
+        <div id="actionButtons">
+            <button class="btn" onclick="startDetection()">🔍 开始全面检测</button>
+            <button class="btn btn-secondary" onclick="copyReport()">📋 复制检测报告</button>
+        </div>
         
-        <div id="finger-cursor"></div>
-        <svg id="progress-ring" viewBox="0 0 44 44">
-            <circle class="progress-circle" cx="22" cy="22" r="20"></circle>
-        </svg>
-        
-        <div id="modeTag" class="mode-tag" style="display:none"></div>
+        <div class="summary" id="summaryBox">
+            <strong>📊 检测结论：</strong>
+            <p id="summaryText">等待检测...</p>
+        </div>
     </div>
+    
+    <div class="footer">
+        <p>支持标准：WebXR 1.0 • WebGL 2.0 • MediaPipe • iOS AR Quick Look</p>
+    </div>
+</div>
 
 <script>
-    // ==================== 配置 ====================
-    const CONFIG = {
-        gridCount: 19,
-        boardSize: 0.6, // 米（AR模式）或相对大小（手动模式）
-        hoverTime: 3000,
-        colors: { black: 0x1a1a1a, white: 0xf0f0f0, board: 0xE6B800 }
-    };
-    
-    // ==================== 状态 ====================
-    let state = {
-        mode: 'checking', // 'checking', 'webxr', 'fallback', 'manual'
-        boardPlaced: false,
-        currentPlayer: 'black',
-        stones: [],
-        isHovering: false,
-        hoverStart: 0,
-        boardTransform: { x: 0, y: -0.5, z: -1, rot: 0, scale: 1 }
-    };
-    
-    let camera, scene, renderer;
-    let xrSession = null, hitTestSource = null, reticle;
-    let goBoard, boardGroup;
-    let hands, cameraUtils;
-    let videoElement;
-    
-    // ==================== 初始化检测 ====================
-    function checkCompatibility() {
-        const info = document.getElementById('info');
-        const isHTTPS = location.protocol === 'https:';
-        const isLocalhost = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
-        
-        // iOS WebXR 需要 HTTPS（localhost除外）
-        if (!isHTTPS && !isLocalhost) {
-            info.innerHTML = '⚠️ 请使用 HTTPS 访问<br><small>GitHub Pages 链接自动支持，检查地址栏是否为 https://</small>';
-            info.className = 'info-box error-box';
-            return;
+    // 检测项目配置
+    const checks = [
+        {
+            id: 'webxr',
+            name: 'WebXR Device API',
+            icon: '🥽',
+            desc: '沉浸式AR会话支持（iOS 13+ Safari）',
+            critical: true
+        },
+        {
+            id: 'hitTest',
+            name: 'WebXR Hit Test',
+            icon: '🎯',
+            desc: '平面检测与射线投射能力',
+            critical: true
+        },
+        {
+            id: 'domOverlay',
+            name: 'WebXR DOM Overlay',
+            icon: '🎨',
+            desc: 'AR场景中叠加HTML UI元素',
+            critical: false
+        },
+        {
+            id: 'webgl2',
+            name: 'WebGL 2.0',
+            icon: '🎮',
+            desc: '3D图形渲染基础能力',
+            critical: true
+        },
+        {
+            id: 'camera',
+            name: 'Camera Access',
+            icon: '📷',
+            desc: 'getUserMedia 摄像头访问权限',
+            critical: true
+        },
+        {
+            id: 'motion',
+            name: 'Device Motion',
+            icon: '📱',
+            desc: '陀螺仪与加速度计（DeviceOrientation）',
+            critical: false
+        },
+        {
+            id: 'webassembly',
+            name: 'WebAssembly',
+            icon: '⚡',
+            desc: '高性能计算（MediaPipe/TensorFlow.js必需）',
+            critical: true
+        },
+        {
+            id: 'simd',
+            name: 'SIMD Support',
+            icon: '🚀',
+            desc: '单指令多数据流（加速AI计算）',
+            critical: false
         }
-        
-        if (!navigator.xr) {
-            info.innerHTML = '检测到 iOS 设备，但 WebXR 未启用<br><small>将使用视频透视模式（效果同样出色）</small>';
-            document.getElementById('fallbackBtn').style.display = 'block';
-        } else {
-            info.textContent = '设备支持 AR，点击启动';
-        }
-    }
+    ];
     
-    // ==================== Three.js 初始化 ====================
-    function initScene() {
-        const container = document.getElementById('canvas-container');
-        
-        scene = new THREE.Scene();
-        camera = new THREE.PerspectiveCamera(70, window.innerWidth/window.innerHeight, 0.01, 20);
-        
-        // 灯光
-        const light = new THREE.DirectionalLight(0xffffff, 1);
-        light.position.set(0.5, 1, 0.5);
-        light.castShadow = true;
-        scene.add(light);
-        scene.add(new THREE.AmbientLight(0xffffff, 0.6));
-        
-        // 渲染器
-        renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-        renderer.setSize(window.innerWidth, window.innerHeight);
-        renderer.setPixelRatio(window.devicePixelRatio);
-        renderer.shadowMap.enabled = true;
-        renderer.xr.enabled = true;
-        container.appendChild(renderer.domElement);
-        
-        // 创建棋盘
-        createGoBoard();
-        
-        window.addEventListener('resize', () => {
-            camera.aspect = window.innerWidth/window.innerHeight;
-            camera.updateProjectionMatrix();
-            renderer.setSize(window.innerWidth, window.innerHeight);
-        });
-    }
+    let detectionResults = {};
+    let isDetecting = false;
     
-    function createGoBoard() {
-        boardGroup = new THREE.Group();
+    // 初始化显示
+    function initDisplay() {
+        const list = document.getElementById('checkList');
+        list.innerHTML = '';
         
-        // 棋盘纹理
-        const canvas = document.createElement('canvas');
-        canvas.width = 1024; canvas.height = 1024;
-        const ctx = canvas.getContext('2d');
-        ctx.fillStyle = '#E6B800'; ctx.fillRect(0,0,1024,1024);
-        
-        // 木纹
-        ctx.strokeStyle = '#D4A000';
-        for(let i=0; i<1024; i+=20) {
-            ctx.beginPath(); ctx.moveTo(0,i); ctx.lineTo(1024,i); ctx.stroke();
-        }
-        
-        // 边框和网格
-        ctx.strokeStyle = '#8B4513'; ctx.lineWidth = 24;
-        ctx.strokeRect(48,48,928,928);
-        ctx.strokeStyle = '#1a1a1a'; ctx.lineWidth = 3;
-        const margin=90, size=844, step=size/(CONFIG.gridCount-1);
-        
-        for(let i=0; i<CONFIG.gridCount; i++) {
-            const pos = margin + i*step;
-            ctx.beginPath(); ctx.moveTo(margin,pos); ctx.lineTo(margin+size,pos); ctx.stroke();
-            ctx.beginPath(); ctx.moveTo(pos,margin); ctx.lineTo(pos,margin+size); ctx.stroke();
-        }
-        
-        // 星位
-        ctx.fillStyle = '#1a1a1a';
-        [3,9,15].forEach(x => {
-            [3,9,15].forEach(y => {
-                ctx.beginPath();
-                ctx.arc(margin+x*step, margin+y*step, 10, 0, Math.PI*2);
-                ctx.fill();
-            });
+        checks.forEach(check => {
+            const item = document.createElement('div');
+            item.className = 'check-item';
+            item.id = `item-${check.id}`;
+            item.innerHTML = `
+                <div class="icon status-checking" id="icon-${check.id}">⏳</div>
+                <div class="check-content">
+                    <div class="check-title">${check.name}</div>
+                    <div class="check-desc">${check.desc} ${check.critical ? '<span style="color:#FF3B30">[必需]</span>' : ''}</div>
+                </div>
+                <div class="status-badge badge-warning" id="badge-${check.id}">待检测</div>
+            `;
+            list.appendChild(item);
         });
         
-        const texture = new THREE.CanvasTexture(canvas);
-        const geometry = new THREE.BoxGeometry(1, 0.02, 1);
-        const material = new THREE.MeshStandardMaterial({ map: texture, roughness: 0.7 });
-        const board = new THREE.Mesh(geometry, material);
-        board.receiveShadow = true;
-        boardGroup.add(board);
+        // 填充设备信息
+        const ua = navigator.userAgent;
+        document.getElementById('userAgent').textContent = ua;
         
-        // 棋盘腿
-        const legGeo = new THREE.CylinderGeometry(0.03, 0.02, 0.15, 16);
-        const legMat = new THREE.MeshStandardMaterial({ color: 0x8B4513 });
-        [[-0.4,-0.075,-0.4], [0.4,-0.075,-0.4], [-0.4,-0.075,0.4], [0.4,-0.075,0.4]].forEach(pos => {
-            const leg = new THREE.Mesh(legGeo, legMat);
-            leg.position.set(...pos);
-            leg.castShadow = true;
-            boardGroup.add(leg);
-        });
+        // 简单解析设备信息
+        let device = '未知设备';
+        let os = '未知系统';
         
-        scene.add(boardGroup);
-        updateBoardTransform();
+        if (/iPhone|iPad|iPod/.test(ua)) {
+            const match = ua.match(/(iPhone|iPad|iPod).+OS (\d+_\d+)/);
+            device = match ? match[1] : 'iOS设备';
+            os = match ? `iOS ${match[2].replace('_', '.')}` : 'iOS';
+        } else if (/Android/.test(ua)) {
+            const match = ua.match(/Android (\d+\.\d+)/);
+            device = 'Android设备';
+            os = match ? `Android ${match[1]}` : 'Android';
+        }
+        
+        let browser = '未知浏览器';
+        if (/Safari/.test(ua) && /Chrome/.test(ua)) browser = 'Chrome';
+        else if (/Safari/.test(ua)) browser = 'Safari';
+        else if (/Firefox/.test(ua)) browser = 'Firefox';
+        else if (/Edg/.test(ua)) browser = 'Edge';
+        
+        document.getElementById('deviceModel').textContent = device;
+        document.getElementById('osVersion').textContent = os;
+        document.getElementById('browserInfo').textContent = browser;
     }
     
-    function updateBoardTransform() {
-        if (!boardGroup) return;
-        boardGroup.position.set(state.boardTransform.x, state.boardTransform.y, state.boardTransform.z);
-        boardGroup.rotation.y = state.boardTransform.rot;
-        boardGroup.scale.setScalar(state.boardTransform.scale);
+    // 更新单项状态
+    function updateStatus(id, status, message) {
+        const icon = document.getElementById(`icon-${id}`);
+        const badge = document.getElementById(`badge-${id}`);
+        const item = document.getElementById(`item-${id}`);
+        
+        detectionResults[id] = { status, message };
+        
+        icon.className = 'icon';
+        item.className = 'check-item';
+        
+        if (status === 'yes') {
+            icon.classList.add('status-yes');
+            icon.textContent = '✓';
+            badge.className = 'status-badge badge-success';
+            badge.textContent = '支持';
+            item.classList.add('supported');
+        } else if (status === 'no') {
+            icon.classList.add('status-no');
+            icon.textContent = '✕';
+            badge.className = 'status-badge badge-error';
+            badge.textContent = '不支持';
+            item.classList.add('unsupported');
+        } else if (status === 'maybe') {
+            icon.classList.add('status-maybe');
+            icon.textContent = '?';
+            badge.className = 'status-badge badge-warning';
+            badge.textContent = '部分';
+            item.classList.add('partial');
+        }
     }
     
-    // ==================== WebXR 模式 ====================
-    async function startWebXR() {
+    // 检测逻辑
+    async function startDetection() {
+        if (isDetecting) return;
+        isDetecting = true;
+        
+        document.getElementById('actionButtons').style.display = 'none';
+        initDisplay();
+        
+        // 1. WebXR 基础检测
         try {
-            const supported = await navigator.xr.isSessionSupported('immersive-ar');
-            if (!supported) throw new Error('AR not supported');
-            
-            xrSession = await navigator.xr.requestSession('immersive-ar', {
-                requiredFeatures: ['hit-test'],
-                optionalFeatures: ['dom-overlay'],
-                domOverlay: { root: document.body }
-            });
-            
-            await renderer.xr.setSession(xrSession);
-            renderer.xr.setReferenceSpaceType('local');
-            
-            state.mode = 'webxr';
-            setupWebXR();
-            
-            document.getElementById('startBtn').style.display = 'none';
-            document.getElementById('info').textContent = '移动手机寻找桌面，点击屏幕放置';
-            
-        } catch(e) {
-            console.error('WebXR failed:', e);
-            startFallbackMode();
-        }
-    }
-    
-    function setupWebXR() {
-        // 创建瞄准器
-        const ring = new THREE.RingGeometry(0.1, 0.15, 32);
-        const mat = new THREE.MeshBasicMaterial({ color: 0x007AFF, transparent: true, opacity: 0.6, side: THREE.DoubleSide });
-        reticle = new THREE.Mesh(ring, mat);
-        reticle.rotation.x = -Math.PI/2;
-        reticle.visible = false;
-        scene.add(reticle);
-        
-        xrSession.requestReferenceSpace('viewer').then(space => {
-            xrSession.requestHitTestSource({ space }).then(source => {
-                hitTestSource = source;
-            });
-        });
-        
-        xrSession.addEventListener('select', onXRSelect);
-        renderer.setAnimationLoop(onXRFrame);
-    }
-    
-    function onXRFrame(time, frame) {
-        if (frame && hitTestSource) {
-            const refSpace = renderer.xr.getReferenceSpace();
-            const results = frame.getHitTestResults(hitTestSource);
-            
-            if (results.length > 0) {
-                const pose = results[0].getPose(refSpace);
-                reticle.visible = true;
-                reticle.matrix.fromArray(pose.transform.matrix);
+            if ('xr' in navigator) {
+                const supported = await navigator.xr.isSessionSupported('immersive-ar');
+                updateStatus('webxr', supported ? 'yes' : 'no', 
+                    supported ? '支持沉浸式AR' : 'API存在但AR会话不支持');
             } else {
-                reticle.visible = false;
+                updateStatus('webxr', 'no', '浏览器不支持WebXR');
             }
-        }
-        renderer.render(scene, camera);
-    }
-    
-    function onXRSelect() {
-        if (reticle.visible && !state.boardPlaced) {
-            boardGroup.position.setFromMatrixPosition(reticle.matrix);
-            boardGroup.quaternion.setFromRotationMatrix(reticle.matrix);
-            state.boardPlaced = true;
-            reticle.visible = false;
-            
-            document.getElementById('info').textContent = '棋盘已放置，启动手部追踪...';
-            setTimeout(startHandTracking, 500);
-        }
-    }
-    
-    // ==================== 降级/手动模式 ====================
-    function startFallbackMode() {
-        state.mode = 'fallback';
-        videoElement = document.getElementById('video-bg');
-        videoElement.style.display = 'block';
-        
-        // 请求摄像头
-        navigator.mediaDevices.getUserMedia({ 
-            video: { facingMode: 'environment' }, 
-            audio: false 
-        }).then(stream => {
-            videoElement.srcObject = stream;
-            videoElement.play();
-            
-            document.getElementById('startBtn').style.display = 'none';
-            document.getElementById('fallbackBtn').style.display = 'none';
-            document.getElementById('manualControls').style.display = 'flex';
-            document.getElementById('confirmPlacement').style.display = 'block';
-            document.getElementById('info').innerHTML = '手动调整棋盘位置<br>使用下方按钮对齐到桌面';
-            document.getElementById('modeTag').textContent = '手动模式';
-            document.getElementById('modeTag').style.display = 'block';
-            
-            // 设置初始位置
-            state.boardTransform = { x: 0, y: -0.3, z: -0.8, rot: 0, scale: 0.5 };
-            updateBoardTransform();
-            
-            renderer.setAnimationLoop(() => renderer.render(scene, camera));
-        }).catch(err => {
-            document.getElementById('info').innerHTML = '无法访问摄像头<br>请检查权限设置';
-        });
-    }
-    
-    function adjustBoard(type) {
-        switch(type) {
-            case 'up': state.boardTransform.y += 0.05; break;
-            case 'down': state.boardTransform.y -= 0.05; break;
-            case 'rotate': state.boardTransform.rot += Math.PI/8; break;
-            case 'scale+': state.boardTransform.scale *= 1.1; break;
-            case 'scale-': state.boardTransform.scale *= 0.9; break;
-        }
-        updateBoardTransform();
-    }
-    
-    document.getElementById('confirmPlacement').addEventListener('click', () => {
-        state.boardPlaced = true;
-        document.getElementById('manualControls').style.display = 'none';
-        document.getElementById('confirmPlacement').style.display = 'none';
-        startHandTracking();
-    });
-    
-    // ==================== 手部追踪（通用） ====================
-    function startHandTracking() {
-        document.getElementById('info').textContent = '伸出食指，悬停3秒落子（黑先）';
-        
-        hands = new Hands({locateFile: (file) => {
-            return `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`;
-        }});
-        
-        hands.setOptions({
-            maxNumHands: 1,
-            modelComplexity: 1,
-            minDetectionConfidence: 0.7,
-            minTrackingConfidence: 0.7
-        });
-        
-        hands.onResults(onHandResults);
-        
-        // 使用前置摄像头（镜像）或后置
-        cameraUtils = new Camera(document.createElement('video'), {
-            onFrame: async () => {
-                await hands.send({image: cameraUtils.video});
-            },
-            width: 1280,
-            height: 720
-        });
-        
-        cameraUtils.start();
-    }
-    
-    function onHandResults(results) {
-        const cursor = document.getElementById('finger-cursor');
-        const ring = document.getElementById('progress-ring');
-        
-        if (!results.multiHandLandmarks || results.multiHandLandmarks.length === 0) {
-            cursor.style.display = 'none';
-            ring.style.display = 'none';
-            state.isHovering = false;
-            return;
+        } catch (e) {
+            updateStatus('webxr', 'no', e.message);
         }
         
-        const tip = results.multiHandLandmarks[0][8]; // 食指尖
-        const x = (1 - tip.x) * window.innerWidth;
-        const y = tip.y * window.innerHeight;
+        // 2. Hit Test（必须在XR会话中才能真正检测，这里检测API存在性）
+        setTimeout(() => {
+            if ('XRHitTestSource' in window || 'XRTransientInputHitTestSource' in window) {
+                updateStatus('hitTest', 'yes', 'Hit Test API 可用');
+            } else if ('xr' in navigator) {
+                updateStatus('hitTest', 'maybe', '需进入AR会话后才能确认');
+            } else {
+                updateStatus('hitTest', 'no', 'WebXR不支持');
+            }
+        }, 100);
         
-        cursor.style.display = 'block';
-        cursor.style.left = x + 'px';
-        cursor.style.top = y + 'px';
+        // 3. DOM Overlay
+        setTimeout(() => {
+            if ('XRDOMOverlayState' in window) {
+                updateStatus('domOverlay', 'yes', 'DOM Overlay 支持');
+            } else {
+                updateStatus('domOverlay', 'maybe', '标准模式可能仍支持');
+            }
+        }, 200);
         
-        // 射线检测
-        const mouse = new THREE.Vector2();
-        mouse.x = (x / window.innerWidth) * 2 - 1;
-        mouse.y = -(y / window.innerHeight) * 2 + 1;
+        // 4. WebGL 2.0
+        setTimeout(() => {
+            const canvas = document.createElement('canvas');
+            const gl = canvas.getContext('webgl2');
+            if (gl) {
+                // 检查XR兼容性
+                const xrCompatible = gl.getContextAttributes().xrCompatible;
+                updateStatus('webgl2', 'yes', 
+                    xrCompatible ? 'WebGL2 + XR兼容' : 'WebGL2可用');
+            } else {
+                updateStatus('webgl2', 'no', '浏览器不支持WebGL 2.0');
+            }
+        }, 300);
         
-        const raycaster = new THREE.Raycaster();
-        raycaster.setFromCamera(mouse, camera);
-        
-        // 与棋盘平面相交
-        const boardY = boardGroup.position.y + 0.01;
-        const distance = (boardY - raycaster.ray.origin.y) / raycaster.ray.direction.y;
-        
-        if (distance > 0) {
-            const point = new THREE.Vector3();
-            raycaster.ray.at(distance, point);
-            
-            // 转换为棋盘本地坐标
-            const localX = point.x - boardGroup.position.x;
-            const localZ = point.z - boardGroup.position.z;
-            const half = 0.5 * boardGroup.scale.x;
-            
-            if (Math.abs(localX) <= half && Math.abs(localZ) <= half) {
-                const step = (half * 2) / (CONFIG.gridCount - 1);
-                const gx = Math.round((localX + half) / step);
-                const gz = Math.round((localZ + half) / step);
-                
-                // 检查是否已有子
-                const exists = state.stones.find(s => s.gx === gx && s.gz === gz);
-                if (!exists) {
-                    handleHover(gx, gz, x, y);
-                    return;
+        // 5. Camera Access
+        setTimeout(async () => {
+            try {
+                if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                    updateStatus('camera', 'no', 'API不存在');
+                } else {
+                    // 实际请求权限测试
+                    const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+                    stream.getTracks().forEach(track => track.stop());
+                    updateStatus('camera', 'yes', '摄像头访问权限正常');
                 }
+            } catch (e) {
+                updateStatus('camera', 'no', e.name === 'NotAllowedError' ? '用户拒绝权限' : e.message);
+            }
+        }, 400);
+        
+        // 6. Device Motion
+        setTimeout(() => {
+            if ('DeviceOrientationEvent' in window && 'DeviceMotionEvent' in window) {
+                // iOS 13+ 需要权限请求
+                if (typeof DeviceOrientationEvent.requestPermission === 'function') {
+                    updateStatus('motion', 'maybe', '需要用户授权（iOS 13+特性）');
+                } else {
+                    updateStatus('motion', 'yes', '设备方向/运动传感器可用');
+                }
+            } else {
+                updateStatus('motion', 'no', '不支持设备运动API');
+            }
+        }, 500);
+        
+        // 7. WebAssembly
+        setTimeout(() => {
+            if (typeof WebAssembly === 'object' && 
+                typeof WebAssembly.instantiate === 'function') {
+                updateStatus('webassembly', 'yes', 'WebAssembly 运行环境正常');
+            } else {
+                updateStatus('webassembly', 'no', '浏览器不支持WASM');
+            }
+        }, 600);
+        
+        // 8. SIMD (需要尝试实例化带SIMD的WASM模块)
+        setTimeout(async () => {
+            try {
+                // 简单的SIMD检测：尝试编译一个包含SIMD指令的WASM字节码
+                const simdBytes = new Uint8Array([
+                    0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
+                    0x01, 0x05, 0x01, 0x60, 0x00, 0x00, 0x03, 0x02,
+                    0x01, 0x00, 0x0a, 0x0a, 0x01, 0x08, 0x00, 0x41,
+                    0x00, 0xfd, 0x0f, 0x1a, 0x0b
+                ]);
+                await WebAssembly.compile(simdBytes);
+                updateStatus('simd', 'yes', 'SIMD128 指令集支持');
+            } catch (e) {
+                updateStatus('simd', 'no', '不支持SIMD（可能影响AI性能）');
+            }
+        }, 700);
+        
+        // 完成检测后生成报告
+        setTimeout(() => {
+            generateSummary();
+            isDetecting = false;
+            document.getElementById('actionButtons').style.display = 'block';
+        }, 1500);
+    }
+    
+    // 生成总结
+    function generateSummary() {
+        const criticalChecks = checks.filter(c => c.critical);
+        const passedCritical = criticalChecks.filter(c => detectionResults[c.id]?.status === 'yes').length;
+        const totalScore = Object.values(detectionResults).filter(r => r.status === 'yes').length;
+        
+        const scoreCircle = document.getElementById('scoreCircle');
+        const scoreText = document.getElementById('scoreText');
+        const summaryBox = document.getElementById('summaryBox');
+        const summaryText = document.getElementById('summaryText');
+        
+        scoreCircle.style.display = 'flex';
+        scoreText.textContent = `${totalScore}/${checks.length}`;
+        scoreCircle.style.setProperty('--score', `${(totalScore/checks.length)*360}deg`);
+        
+        let conclusion = '';
+        if (passedCritical === criticalChecks.length) {
+            conclusion = '✅ <strong>完全兼容</strong>：您的设备支持所有核心AR技术，可以运行完整的WebXR AR应用（包括平面检测、6DoF追踪等）。';
+            scoreCircle.style.background = `conic-gradient(#34C759 ${(totalScore/checks.length)*360}deg, rgba(255,255,255,0.3) 0)`;
+        } else if (passedCritical >= criticalChecks.length - 1) {
+            conclusion = '⚠️ <strong>基本兼容</strong>：缺少部分非核心功能，但可以使用基于摄像头的AR方案（如8th Wall、AR.js）。';
+            scoreCircle.style.background = `conic-gradient(#FF9500 ${(totalScore/checks.length)*360}deg, rgba(255,255,255,0.3) 0)`;
+        } else {
+            conclusion = '❌ <strong>不兼容</strong>：缺少关键的WebXR或WebGL支持。建议使用原生App体验AR功能。';
+            scoreCircle.style.background = `conic-gradient(#FF3B30 ${(totalScore/checks.length)*360}deg, rgba(255,255,255,0.3) 0)`;
+        }
+        
+        // 添加具体建议
+        if (detectionResults.webxr?.status === 'no') {
+            conclusion += '<br><br>💡 <strong>建议</strong>：';
+            if (/iPhone|iPad/.test(navigator.userAgent)) {
+                conclusion += 'iOS请使用Safari（iOS 13+），并确保设置→Safari→高级→Experimental Features中启用了WebXR相关选项。';
+            } else {
+                conclusion += '请使用最新版Chrome或Edge浏览器访问。';
             }
         }
         
-        resetHover();
+        summaryText.innerHTML = conclusion;
+        summaryBox.classList.add('show');
     }
     
-    function handleHover(gx, gz, screenX, screenY) {
-        const ring = document.getElementById('progress-ring');
+    // 复制报告
+    function copyReport() {
+        const ua = navigator.userAgent;
+        const lines = ['📱 AR Web 兼容性检测报告', '═══════════════════════', ''];
         
-        if (!state.isHovering || state.hoverGrid?.gx !== gx || state.hoverGrid?.gz !== gz) {
-            state.isHovering = true;
-            state.hoverGrid = { gx, gz };
-            state.hoverStart = Date.now();
-            
-            ring.style.display = 'block';
-            ring.style.left = screenX + 'px';
-            ring.style.top = screenY + 'px';
-        }
-        
-        const elapsed = Date.now() - state.hoverStart;
-        const progress = Math.min(elapsed / CONFIG.hoverTime, 1);
-        document.querySelector('.progress-circle').style.strokeDashoffset = 126 - (progress * 126);
-        
-        if (progress >= 1) {
-            placeStone(gx, gz);
-            resetHover();
-        }
-    }
-    
-    function resetHover() {
-        state.isHovering = false;
-        state.hoverGrid = null;
-        document.getElementById('progress-ring').style.display = 'none';
-    }
-    
-    function placeStone(gx, gz) {
-        const geometry = new THREE.SphereGeometry(0.04, 32, 32);
-        const material = new THREE.MeshStandardMaterial({
-            color: state.currentPlayer === 'black' ? CONFIG.colors.black : CONFIG.colors.white,
-            roughness: 0.2
+        checks.forEach(check => {
+            const result = detectionResults[check.id];
+            const status = result ? (result.status === 'yes' ? '✅' : result.status === 'no' ? '❌' : '⚠️') : '⏳';
+            lines.push(`${status} ${check.name}: ${result?.message || '未检测'}`);
         });
         
-        const stone = new THREE.Mesh(geometry, material);
-        const half = 0.5 * boardGroup.scale.x;
-        const step = (half * 2) / (CONFIG.gridCount - 1);
+        lines.push('');
+        lines.push(`设备: ${document.getElementById('deviceModel').textContent}`);
+        lines.push(`系统: ${document.getElementById('osVersion').textContent}`);
+        lines.push(`浏览器: ${document.getElementById('browserInfo').textContent}`);
+        lines.push(`UA: ${ua}`);
         
-        stone.position.x = boardGroup.position.x - half + gx * step;
-        stone.position.z = boardGroup.position.z - half + gz * step;
-        stone.position.y = boardGroup.position.y + 0.03;
+        const text = lines.join('\n');
         
-        stone.scale.set(0,0,0);
-        boardGroup.add(stone);
-        
-        // 动画
-        let s = 0;
-        const anim = setInterval(() => {
-            s += 0.2;
-            stone.scale.set(s,s,s);
-            if (s >= 1) clearInterval(anim);
-        }, 16);
-        
-        state.stones.push({ gx, gz, mesh: stone });
-        state.currentPlayer = state.currentPlayer === 'black' ? 'white' : 'black';
-        
-        const text = state.currentPlayer === 'black' ? '黑方' : '白方';
-        document.getElementById('info').textContent = `第 ${state.stones.length} 手 - 当前：${text}`;
+        if (navigator.clipboard) {
+            navigator.clipboard.writeText(text).then(() => {
+                alert('检测报告已复制到剪贴板！');
+            });
+        } else {
+            // 降级方案
+            const textarea = document.createElement('textarea');
+            textarea.value = text;
+            document.body.appendChild(textarea);
+            textarea.select();
+            document.execCommand('copy');
+            document.body.removeChild(textarea);
+            alert('检测报告已复制！');
+        }
     }
     
-    // ==================== 事件绑定 ====================
-    window.onload = () => {
-        initScene();
-        checkCompatibility();
-    };
-    
-    document.getElementById('startBtn').addEventListener('click', () => {
-        if (navigator.xr) startWebXR();
-        else startFallbackMode();
-    });
-    
-    document.getElementById('fallbackBtn').addEventListener('click', startFallbackMode);
-    
-    // 阻止默认触摸行为
-    document.addEventListener('touchmove', e => e.preventDefault(), { passive: false });
+    // 页面加载
+    window.onload = initDisplay;
 </script>
 
 </body>
