@@ -1,373 +1,487 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>WebAR 围棋 - 8th Wall</title>
-  
-  <!-- 8th Wall 引擎（替换 YOUR_APP_KEY） -->
-  <script src="//cdn.8thwall.com/web/aframe/8frame-1.4.1.min.js"></script>
-  <script src="//cdn.8thwall.com/web/xrextras/xrextras.js"></script>
-  <script async src="//apps.8thwall.com/xrweb?appKey=XXXXXXXX"></script>
-  
-  <style>
-    body { margin: 0; overflow: hidden; font-family: -apple-system, sans-serif; background: #000; }
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>AR.js + A-Frame + Babylon.js 围棋</title>
     
-    #ui {
-      position: absolute;
-      top: 0; left: 0; width: 100%; height: 100%;
-      z-index: 10;
-      pointer-events: none;
-      display: flex;
-      flex-direction: column;
-      justify-content: space-between;
-      padding: 40px 20px;
-    }
+    <!-- AR.js with A-Frame -->
+    <script src="https://aframe.io/releases/1.4.0/aframe.min.js"></script>
+    <script src="https://raw.githack.com/AR-js-org/AR.js/master/aframe/build/aframe-ar.js"></script>
     
-    .top-info {
-      background: rgba(0,0,0,0.8);
-      color: white;
-      padding: 12px 20px;
-      border-radius: 20px;
-      text-align: center;
-      font-size: 14px;
-      align-self: center;
-      backdrop-filter: blur(10px);
-    }
-    
-    .bottom-controls {
-      display: flex;
-      flex-direction: column;
-      gap: 10px;
-      align-items: center;
-    }
-    
-    .btn {
-      background: #007AFF;
-      color: white;
-      border: none;
-      padding: 14px 28px;
-      border-radius: 24px;
-      font-size: 16px;
-      font-weight: 600;
-      cursor: pointer;
-      pointer-events: auto;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-      transition: transform 0.2s;
-    }
-    
-    .btn:active { transform: scale(0.95); }
-    .btn-secondary { background: #34C759; }
-    .btn:disabled { background: #666; opacity: 0.6; }
-    
-    #loading {
-      position: absolute;
-      top: 50%; left: 50%;
-      transform: translate(-50%, -50%);
-      color: white;
-      font-size: 18px;
-      z-index: 20;
-    }
-  </style>
+    <!-- Babylon.js for advanced rendering -->
+    <script src="https://cdn.babylonjs.com/babylon.js"></script>
+    <script src="https://cdn.babylonjs.com/gui/babylon.gui.min.js"></script>
+
+    <style>
+        body { margin: 0; overflow: hidden; background: #000; font-family: -apple-system, sans-serif; }
+        
+        #ui-layer {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            z-index: 100;
+            pointer-events: none;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            padding: 40px 20px;
+        }
+        
+        .info-panel {
+            background: rgba(0,0,0,0.85);
+            color: white;
+            padding: 15px 25px;
+            border-radius: 20px;
+            text-align: center;
+            font-size: 14px;
+            align-self: center;
+            backdrop-filter: blur(10px);
+            max-width: 90%;
+            border: 1px solid rgba(255,255,255,0.2);
+        }
+        
+        .controls {
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+            pointer-events: auto;
+        }
+        
+        button {
+            background: #007AFF;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 20px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+        }
+        
+        button.secondary { background: #5856D6; }
+        button.danger { background: #FF3B30; }
+        
+        #loading {
+            position: absolute;
+            top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            color: white;
+            font-size: 18px;
+            z-index: 200;
+            background: rgba(0,0,0,0.9);
+            padding: 20px 40px;
+            border-radius: 30px;
+        }
+        
+        .marker-hint {
+            position: absolute;
+            top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            width: 200px;
+            height: 200px;
+            border: 2px dashed rgba(255,255,255,0.5);
+            border-radius: 20px;
+            display: none;
+            pointer-events: none;
+        }
+    </style>
 </head>
 <body>
 
-<div id="loading">正在启动相机...</div>
+<div id="loading">正在初始化 AR 引擎...</div>
+<div class="marker-hint" id="markerHint"></div>
 
-<div id="ui">
-  <div class="top-info" id="statusText">移动手机扫描平面，点击放置棋盘</div>
-  <div class="bottom-controls">
-    <button id="placeBtn" class="btn" style="display:none">放置棋盘</button>
-    <button id="resetBtn" class="btn btn-secondary" style="display:none">重新开始</button>
-  </div>
+<div id="ui-layer">
+    <div class="info-panel">
+        <div id="statusText">📱 对准 Hiro 标记（或点击"切换模式"使用表面放置）</div>
+        <div style="font-size: 12px; opacity: 0.8; margin-top: 5px;">
+            当前玩家: <span id="currentPlayer" style="color: #FFD700;">黑方</span> | 
+            手数: <span id="moveCount">0</span>
+        </div>
+    </div>
+    
+    <div class="controls">
+        <button onclick="resetGame()">重新开始</button>
+        <button class="secondary" onclick="toggleMode()">切换 AR 模式</button>
+        <button class="danger" onclick="undoMove()">悔棋</button>
+    </div>
 </div>
 
-<!-- 8th Wall AR 场景 -->
+<!-- AR 场景 -->
 <a-scene 
-  xrweb="allowedDevices: any"
-  xrextras-almost-there
-  xrextras-loading
-  xrextras-runtime-error
-  renderer="antialias: true; alpha: false; colorManagement: true"
-  embedded>
-  
-  <a-assets>
-    <a-asset-item id="stone-geo" src="https://cdn.jsdelivr.net/gh/aframevr/sample-assets@master/assets/models/sphere.gltf"></a-asset-item>
-  </a-assets>
-
-  <!-- 相机 -->
-  <a-camera position="0 1.6 0" raycaster="objects: .clickable" cursor="rayOrigin: mouse"></a-camera>
-
-  <!-- 灯光系统 -->
-  <a-light type="ambient" intensity="0.5"></a-light>
-  <a-light type="directional" intensity="0.8" position="0.5 1 0.5" cast-shadow="true"></a-light>
-
-  <!-- 棋盘实体组（初始隐藏） -->
-  <a-entity id="gameBoard" visible="false">
-    <!-- 棋盘底座 -->
-    <a-box id="boardBase" 
-           position="0 0.01 0" 
-           width="0.6" height="0.02" depth="0.6"
-           material="color: #E6B800; roughness: 0.8"
-           shadow="cast: true; receive: true">
-    </a-box>
+    embedded 
+    arjs="sourceType: webcam; trackingMethod: best; debugUIEnabled: false;"
+    renderer="antialias: true; alpha: true; colorManagement: true; highRefreshRate: true"
+    vr-mode-ui="enabled: false">
     
-    <!-- 棋盘腿 -->
-    <a-cylinder position="-0.25 -0.075 -0.25" radius="0.02" height="0.15" color="#8B4513" shadow="cast: true"></a-cylinder>
-    <a-cylinder position="0.25 -0.075 -0.25" radius="0.02" height="0.15" color="#8B4513" shadow="cast: true"></a-cylinder>
-    <a-cylinder position="-0.25 -0.075 0.25" radius="0.02" height="0.15" color="#8B4513" shadow="cast: true"></a-cylinder>
-    <a-cylinder position="0.25 -0.075 0.25" radius="0.02" height="0.15" color="#8B4513" shadow="cast: true"></a-cylinder>
-    
-    <!-- 网格线（使用细长的 box 模拟） -->
-    <a-entity id="gridLines"></a-entity>
-    
-    <!-- 棋子容器 -->
-    <a-entity id="stonesGroup"></a-entity>
-    
-    <!-- 隐形点击平面（用于检测下棋位置） -->
-    <a-plane id="clickPlane"
-             position="0 0.03 0"
-             rotation="-90 0 0"
-             width="0.55" height="0.55"
-             class="clickable"
-             material="visible: false; transparent: true; opacity: 0">
-    </a-plane>
-  </a-entity>
+    <!-- 资源管理 -->
+    <a-assets>
+        <!-- 使用 Babylon.js 生成棋盘纹理 -->
+        <canvas id="babylonTexture"></canvas>
+        
+        <!-- 棋子声音 -->
+        <audio id="stoneSound" src="data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2teleR0NZKrk7rNsGgxJkNTsvH0nDk+L0O+0dSQPUIjN7sqAJA9GhtLquHEkDkiGzO3JgCQPR4bR6bpwJBBBgsnutm4jEUGAxOu0bSITSHzH7bRuIxKHfsjttG0iE4t+yO2zbCASiny+7rRrHxCJdsHutWsfD4l1wO60ayAPh3O+7rNqHxCIcb7tsmkgD4dyv+60aSAQhXHA7bFoIhCEccDtr2giEIPwve2uaCASg++97KtgIBKI5rztqV8gE4njvO2pXiATiuO77qhfIBSK47nvqV4gFYnjue+qXiAYjOe976peIBmN5r3vp14gGo3mv++nXiAcjue986teICCO573yqV4gJY7nvfKpXiApjue+8qleICyO573zpV4gLY7nvvOlXiAujue+9KleIC+O5770pV4gMI7nvfSlXiAzjue99KVeIDSO577zpV4gNo7nvvOlXiA4jue+86VeIDmO577ypV4gOg7nvvKlXiA7jue+8qVeIDyO577xpV4gPo7nvvGlXiA+jue+8KVeIEGO5r7upV4gRY7mvu6lXiBJjua+7qVeIFGO5r7qpV4gVY7mvualXiBZjua+6pV4gWY7mvuKlXiBdjua+4qVeIGGO5r7epV4gZY7mvu6lXiBpjuW+3qVWA="></audio>
+    </a-assets>
 
-  <!-- 放置指示器 -->
-  <a-ring id="placementRing" 
-          rotation="-90 0 0"
-          radius-inner="0.1" 
-          radius-outer="0.15"
-          color="#007AFF"
-          opacity="0.8"
-          visible="false"
-          animation="property: scale; to: 1.2 1.2 1.2; dir: alternate; dur: 1000; loop: true">
-  </a-ring>
+    <!-- 灯光系统 -->
+    <a-light type="ambient" color="#ffffff" intensity="0.6"></a-light>
+    <a-light type="directional" color="#ffffff" intensity="0.8" position="1 2 1" cast-shadow="true"></a-light>
+    <a-light type="point" color="#FFE4B5" intensity="0.4" position="0 2 0"></a-light>
 
+    <!-- AR 标记追踪（Hiro 标记） -->
+    <a-marker type="pattern" url="https://raw.githubusercontent.com/AR-js-org/AR.js/master/data/data/patt.hiro" id="markerTarget" emitevents="true">
+        
+        <!-- 围棋棋盘实体 -->
+        <a-entity id="goBoard" position="0 0 0" rotation="-90 0 0">
+            
+            <!-- 棋盘底座（使用 Babylon 生成的纹理） -->
+            <a-plane 
+                id="boardPlane"
+                width="0.8" 
+                height="0.8"
+                material="src: #babylonTexture; transparent: false; shader: flat"
+                shadow="receive: true; cast: false"
+                class="clickable">
+            </a-plane>
+            
+            <!-- 棋盘厚度 -->
+            <a-box position="0 0 -0.02" width="0.85" height="0.85" depth="0.04" color="#8B4513" shadow="cast: true"></a-box>
+            
+            <!-- 棋子容器 -->
+            <a-entity id="stonesContainer" position="0 0 0.02"></a-entity>
+            
+            <!-- 交互平面（透明的点击层） -->
+            <a-plane 
+                id="clickSurface"
+                position="0 0 0.01"
+                width="0.75"
+                height="0.75"
+                class="clickable"
+                material="visible: false; transparent: true"
+                raycaster-listener>
+            </a-plane>
+            
+            <!-- 星位标记（辅助视觉） -->
+            <a-entity id="starPoints"></a-entity>
+        </a-entity>
+        
+    </a-marker>
+
+    <!-- 相机 -->
+    <a-entity camera>
+        <a-cursor 
+            id="cursor"
+            raycaster="objects: .clickable"
+            color="#007AFF"
+            scale="0.5 0.5 0.5"
+            opacity="0.8">
+        </a-cursor>
+    </a-entity>
 </a-scene>
 
 <script>
-  // 游戏状态
-  let gameState = {
-    boardPlaced: false,
-    currentPlayer: 'black', // 'black' | 'white'
-    stones: [], // {x, z, player, mesh}
-    boardPos: null,
-    boardRot: null
-  };
-
-  // 棋盘配置（19路）
-  const BOARD_SIZE = 0.6; // 米
-  const MARGIN = 0.05; // 边距
-  const GRID_SIZE = BOARD_SIZE - (MARGIN * 2);
-  const CELL_SIZE = GRID_SIZE / 18; // 18个间隔，19条线
-
-  // 生成棋盘网格线
-  function createGridLines() {
-    const container = document.querySelector('#gridLines');
-    const start = -GRID_SIZE / 2;
-    
-    // 横线
-    for(let i=0; i<19; i++) {
-      const z = start + i * CELL_SIZE;
-      const line = document.createElement('a-box');
-      line.setAttribute('position', `0 0.021 ${z}`);
-      line.setAttribute('width', GRID_SIZE);
-      line.setAttribute('height', '0.001');
-      line.setAttribute('depth', '0.002');
-      line.setAttribute('color', '#1a1a1a');
-      container.appendChild(line);
+// ==================== Babylon.js 纹理生成器 ====================
+class GoBoardTextureGenerator {
+    constructor() {
+        this.canvas = document.getElementById('babylonTexture');
+        this.canvas.width = 1024;
+        this.canvas.height = 1024;
+        this.engine = new BABYLON.Engine(this.canvas, true, { preserveDrawingBuffer: true, stencil: true });
+        this.scene = new BABYLON.Scene(this.engine);
+        this.generateTexture();
     }
     
-    // 竖线
-    for(let i=0; i<19; i++) {
-      const x = start + i * CELL_SIZE;
-      const line = document.createElement('a-box');
-      line.setAttribute('position', `${x} 0.021 0`);
-      line.setAttribute('width', '0.002');
-      line.setAttribute('height', '0.001');
-      line.setAttribute('depth', GRID_SIZE);
-      line.setAttribute('color', '#1a1a1a');
-      container.appendChild(line);
+    generateTexture() {
+        const scene = this.scene;
+        
+        // 相机（正交）
+        const camera = new BABYLON.ArcRotateCamera("camera", 0, 0, 1, BABYLON.Vector3.Zero(), scene);
+        camera.mode = BABYLON.Camera.ORTHOGRAPHIC_CAMERA;
+        camera.orthoLeft = -1.2;
+        camera.orthoRight = 1.2;
+        camera.orthoTop = 1.2;
+        camera.orthoBottom = -1.2;
+        
+        // 光源
+        new BABYLON.HemisphericLight("light", new BABYLON.Vector3(0, 1, 0), scene);
+        
+        // 棋盘背景（木质材质）
+        const ground = BABYLON.MeshBuilder.CreateGround("ground", {width: 2.4, height: 2.4}, scene);
+        const woodMaterial = new BABYLON.StandardMaterial("wood", scene);
+        woodMaterial.diffuseColor = new BABYLON.Color3(0.9, 0.72, 0); // #E6B800
+        woodMaterial.specularColor = new BABYLON.Color3(0.1, 0.1, 0.1);
+        woodMaterial.roughness = 0.8;
+        
+        // 程序木纹
+        const woodTexture = new BABYLON.NoiseProceduralTexture("perlin", 256, scene);
+        woodTexture.octaves = 3;
+        woodTexture.persistence = 0.8;
+        woodTexture.animationSpeedFactor = 0;
+        woodMaterial.bumpTexture = woodTexture;
+        woodMaterial.bumpTexture.level = 0.5;
+        
+        ground.material = woodMaterial;
+        
+        // 创建 19 路网格线
+        const lines = [];
+        const start = -1.0;
+        const end = 1.0;
+        const step = 2.0 / 18; // 19条线，18个间隔
+        
+        // 横线
+        for(let i=0; i<19; i++) {
+            const z = start + i * step;
+            lines.push([new BABYLON.Vector3(start, 0.01, z), new BABYLON.Vector3(end, 0.01, z)]);
+        }
+        // 竖线
+        for(let i=0; i<19; i++) {
+            const x = start + i * step;
+            lines.push([new BABYLON.Vector3(x, 0.01, start), new BABYLON.Vector3(x, 0.01, end)]);
+        }
+        
+        const gridColor = new BABYLON.Color4(0.1, 0.1, 0.1, 1);
+        BABYLON.MeshBuilder.CreateLineSystem("grid", {lines: lines, colors: Array(lines.length).fill([gridColor, gridColor])}, scene);
+        
+        // 星位（9个黑点）
+        const starPositions = [3, 9, 15];
+        starPositions.forEach(i => {
+            starPositions.forEach(j => {
+                const x = start + i * step;
+                const z = start + j * step;
+                const star = BABYLON.MeshBuilder.CreateSphere("star", {diameter: 0.08}, scene);
+                star.position = new BABYLON.Vector3(x, 0.02, z);
+                const starMat = new BABYLON.StandardMaterial("starMat", scene);
+                starMat.diffuseColor = new BABYLON.Color3(0.1, 0.1, 0.1);
+                star.material = starMat;
+            });
+        });
+        
+        // 渲染一次到 Canvas
+        this.engine.runRenderLoop(() => {
+            scene.render();
+            // 停止渲染循环，静态纹理即可
+            setTimeout(() => this.engine.stopRenderLoop(), 100);
+        });
     }
-    
-    // 星位（9个黑点）
-    const stars = [3, 9, 15];
-    stars.forEach(i => {
-      stars.forEach(j => {
-        const x = start + i * CELL_SIZE;
-        const z = start + j * CELL_SIZE;
-        const star = document.createElement('a-cylinder');
-        star.setAttribute('position', `${x} 0.022 ${z}`);
-        star.setAttribute('radius', '0.008');
-        star.setAttribute('height', '0.001');
-        star.setAttribute('color', '#1a1a1a');
-        container.appendChild(star);
-      });
-    });
-  }
+}
 
-  // 等待 8th Wall 就绪
-  window.addEventListener('load', () => {
-    createGridLines();
+// ==================== 游戏逻辑 ====================
+const GameLogic = {
+    state: {
+        currentPlayer: 'black',
+        stones: [], // {x, z, player, mesh}
+        gridSize: 19,
+        boardSize: 0.75, // 米
+        isARMode: true
+    },
     
-    const scene = document.querySelector('a-scene');
+    init() {
+        // 初始化 Babylon 纹理
+        new GoBoardTextureGenerator();
+        
+        // 隐藏加载
+        document.getElementById('loading').style.display = 'none';
+        
+        // 设置点击监听
+        this.setupInteraction();
+        
+        // 生成星位辅助标记（A-Frame 原生，叠加在 Babylon 纹理上）
+        this.createStarMarkers();
+    },
     
-    scene.addEventListener('realityready', () => {
-      document.getElementById('loading').style.display = 'none';
-      document.getElementById('placeBtn').style.display = 'block';
-      console.log('8th Wall 已就绪');
-    });
+    createStarMarkers() {
+        const container = document.getElementById('starPoints');
+        const positions = [3, 9, 15];
+        const step = 0.75 / 18; // 与 Babylon 中的 step 对应
+        
+        positions.forEach(i => {
+            positions.forEach(j => {
+                const marker = document.createElement('a-sphere');
+                const x = -0.375 + i * step;
+                const z = -0.375 + j * step;
+                marker.setAttribute('position', `${x} 0.005 ${z}`);
+                marker.setAttribute('radius', '0.008');
+                marker.setAttribute('color', '#1a1a1a');
+                container.appendChild(marker);
+            });
+        });
+    },
     
-    scene.addEventListener('realityerror', (e) => {
-      document.getElementById('loading').textContent = 'AR初始化失败: ' + e.detail;
-    });
-  });
+    setupInteraction() {
+        // 使用 raycaster 监听点击
+        const clickSurface = document.getElementById('clickSurface');
+        
+        clickSurface.addEventListener('click', (e) => {
+            if(!this.state.isARMode) return;
+            
+            // 获取交点位置
+            const intersection = e.detail.intersection;
+            if(!intersection) return;
+            
+            const point = intersection.point;
+            
+            // 转换为棋盘本地坐标（棋盘旋转了 -90度 X轴，所以 Y 在这里是高度）
+            // 注意：A-Frame 的坐标系，棋盘是平放的（rotation -90 0 0）
+            const localX = point.x;
+            const localZ = point.z; // 在旋转后的坐标系中
+            
+            // 吸附到最近的交叉点
+            const gridX = Math.round((localX + 0.375) / (0.75/18));
+            const gridZ = Math.round((localZ + 0.375) / (0.75/18));
+            
+            // 边界检查
+            if(gridX < 0 || gridX > 18 || gridZ < 0 || gridZ > 18) return;
+            
+            // 检查是否已有棋子
+            const exists = this.state.stones.find(s => s.gx === gridX && s.gz === gridZ);
+            if(exists) return;
+            
+            this.placeStone(gridX, gridZ);
+        });
+    },
+    
+    placeStone(gx, gz) {
+        const container = document.getElementById('stonesContainer');
+        const step = 0.75 / 18;
+        const x = -0.375 + gx * step;
+        const z = -0.375 + gz * step;
+        
+        // 创建棋子实体
+        const stone = document.createElement('a-sphere');
+        const color = this.state.currentPlayer === 'black' ? '#0d0d0d' : '#f5f5f5';
+        const yPos = 0.02 + (this.state.stones.length * 0.0001); // 防 z-fighting
+        
+        stone.setAttribute('position', `${x} ${yPos} ${z}`);
+        stone.setAttribute('radius', '0.018');
+        stone.setAttribute('color', color);
+        stone.setAttribute('shadow', 'cast: true');
+        stone.setAttribute('class', 'stone');
+        
+        // 落子动画（从上方落下）
+        stone.setAttribute('animation', {
+            property: 'position',
+            from: `${x} 0.2 ${z}`,
+            to: `${x} ${yPos} ${z}`,
+            dur: 400,
+            easing: 'easeOutBounce'
+        });
+        
+        // 材质细节（使用 Babylon 风格的材质属性通过 A-Frame 设置）
+        if(this.state.currentPlayer === 'white') {
+            stone.setAttribute('material', 'roughness: 0.2; metalness: 0.1');
+        } else {
+            stone.setAttribute('material', 'roughness: 0.4; metalness: 0.0');
+        }
+        
+        container.appendChild(stone);
+        
+        // 播放声音
+        const audio = document.getElementById('stoneSound');
+        audio.currentTime = 0;
+        audio.play().catch(e => {});
+        
+        // 保存状态
+        this.state.stones.push({
+            gx, gz, 
+            player: this.state.currentPlayer,
+            element: stone
+        });
+        
+        // 切换玩家
+        this.state.currentPlayer = this.state.currentPlayer === 'black' ? 'white' : 'black';
+        this.updateUI();
+        
+        // 检查提子（简单逻辑：四周被围则提，实际应实现完整围棋规则）
+        this.checkCaptures(gx, gz);
+    },
+    
+    checkCaptures(x, z) {
+        // 简化版：不实现复杂提子逻辑，仅演示放置
+        // 实际项目应使用连通域算法检查气
+    },
+    
+    updateUI() {
+        document.getElementById('currentPlayer').textContent = 
+            this.state.currentPlayer === 'black' ? '黑方' : '白方';
+        document.getElementById('currentPlayer').style.color = 
+            this.state.currentPlayer === 'black' ? '#FFD700' : '#E0E0E0';
+        document.getElementById('moveCount').textContent = this.state.stones.length;
+    },
+    
+    reset() {
+        const container = document.getElementById('stonesContainer');
+        while(container.firstChild) {
+            container.removeChild(container.firstChild);
+        }
+        this.state.stones = [];
+        this.state.currentPlayer = 'black';
+        this.updateUI();
+    },
+    
+    undo() {
+        if(this.state.stones.length === 0) return;
+        const last = this.state.stones.pop();
+        last.element.remove();
+        this.state.currentPlayer = last.player; // 回退玩家
+        this.updateUI();
+    }
+};
 
-  // 放置棋盘逻辑
-  document.getElementById('placeBtn').addEventListener('click', () => {
-    const ring = document.getElementById('placementRing');
-    const board = document.getElementById('gameBoard');
-    const camera = document.querySelector('a-camera');
+// ==================== 全局控制函数 ====================
+function resetGame() {
+    GameLogic.reset();
+}
+
+function undoMove() {
+    GameLogic.undo();
+}
+
+function toggleMode() {
+    // 切换标记追踪和表面放置模式
+    const marker = document.getElementById('markerTarget');
+    const status = document.getElementById('statusText');
     
-    // 获取相机前方位置（1.5米处）
-    const camPos = camera.getAttribute('position');
-    const camRot = camera.getAttribute('rotation');
-    const rad = (camRot.y * Math.PI) / 180;
-    
-    const x = camPos.x - Math.sin(rad) * 1.5;
-    const z = camPos.z - Math.cos(rad) * 1.5;
-    
-    // 保存棋盘世界坐标
-    gameState.boardPos = { x, y: 0, z };
-    gameState.boardRot = camRot.y;
-    
-    // 放置棋盘
-    board.setAttribute('position', `${x} 0 ${z}`);
-    board.setAttribute('rotation', `0 ${camRot.y} 0`);
-    board.setAttribute('visible', true);
-    
-    // 入场动画
-    board.setAttribute('scale', '0 0 0');
+    if(GameLogic.state.isARMode) {
+        // 切换到表面检测模式（需要重新加载场景使用 hit-test）
+        status.textContent = '📐 表面放置模式开发中，当前请使用标记模式';
+        alert('提示：AR.js 表面检测需要额外的 Three.js 集成，当前版本请使用 Hiro 标记模式');
+    } else {
+        GameLogic.state.isARMode = true;
+        status.textContent = '📱 对准 Hiro 标记（打印或显示在另一台设备上）';
+    }
+}
+
+// ==================== 初始化 ====================
+window.addEventListener('load', () => {
+    // 延迟初始化确保 AR.js 就绪
     setTimeout(() => {
-      board.setAttribute('animation', {
-        property: 'scale',
-        to: '1 1 1',
-        dur: 600,
-        easing: 'easeOutElastic'
-      });
-    }, 50);
-    
-    // 更新 UI
-    gameState.boardPlaced = true;
-    ring.setAttribute('visible', false);
-    document.getElementById('placeBtn').style.display = 'none';
-    document.getElementById('resetBtn').style.display = 'block';
-    document.getElementById('statusText').textContent = '点击棋盘交叉点下棋（黑先）';
-    
-    // 添加点击监听
-    setupBoardInteraction();
-  });
+        GameLogic.init();
+        
+        // 检查相机权限
+        if(navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+            navigator.mediaDevices.getUserMedia({ video: true })
+                .then(stream => {
+                    stream.getTracks().forEach(track => track.stop());
+                })
+                .catch(err => {
+                    alert('请允许相机权限以使用 AR 功能');
+                });
+        }
+    }, 1000);
+});
 
-  // 棋盘交互（下棋）
-  function setupBoardInteraction() {
-    const clickPlane = document.getElementById('clickPlane');
-    
-    clickPlane.addEventListener('click', (e) => {
-      if(!gameState.boardPlaced) return;
-      
-      // 获取点击点在平面上的 UV 坐标
-      const intersection = e.detail.intersection;
-      if(!intersection) return;
-      
-      const point = intersection.point;
-      
-      // 转换为棋盘本地坐标（考虑棋盘旋转）
-      const dx = point.x - gameState.boardPos.x;
-      const dz = point.z - gameState.boardPos.z;
-      const rot = (gameState.boardRot * Math.PI) / 180;
-      
-      // 逆向旋转
-      const localX = dx * Math.cos(rot) - dz * Math.sin(rot);
-      const localZ = dx * Math.sin(rot) + dz * Math.cos(rot);
-      
-      // 检查是否在有效范围内（-0.275 到 0.275）
-      const halfSize = GRID_SIZE / 2;
-      if(Math.abs(localX) > halfSize || Math.abs(localZ) > halfSize) return;
-      
-      // 吸附到最近的交叉点
-      const gridX = Math.round((localX + halfSize) / CELL_SIZE);
-      const gridZ = Math.round((localZ + halfSize) / CELL_SIZE);
-      
-      // 检查是否已有棋子
-      const exists = gameState.stones.find(s => s.gx === gridX && s.gz === gridZ);
-      if(exists) return;
-      
-      // 计算世界坐标放置棋子
-      const stoneX = gameState.boardPos.x + 
-        (gridX * CELL_SIZE - halfSize) * Math.cos(-rot) - 
-        (gridZ * CELL_SIZE - halfSize) * Math.sin(-rot);
-      const stoneZ = gameState.boardPos.z + 
-        (gridX * CELL_SIZE - halfSize) * Math.sin(-rot) + 
-        (gridZ * CELL_SIZE - halfSize) * Math.cos(-rot);
-      
-      placeStone(stoneX, stoneZ, gridX, gridZ);
-    });
-  }
+// 处理标记找到/丢失事件
+const marker = document.getElementById('markerTarget');
+marker.addEventListener('markerFound', () => {
+    document.getElementById('statusText').innerHTML = '✅ 检测到棋盘标记，点击网格交叉点下棋<br><small>使用"悔棋"按钮撤销误操作</small>';
+    document.getElementById('markerHint').style.display = 'none';
+});
 
-  function placeStone(worldX, worldZ, gridX, gridZ) {
-    const isBlack = gameState.currentPlayer === 'black';
-    const stone = document.createElement('a-sphere');
-    
-    stone.setAttribute('position', `${worldX} ${gameState.boardPos.y + 0.04} ${worldZ}`);
-    stone.setAttribute('radius', '0.018');
-    stone.setAttribute('color', isBlack ? '#0d0d0d' : '#f5f5f5');
-    stone.setAttribute('shadow', 'cast: true');
-    
-    // 高度动画（从上方落下）
-    stone.setAttribute('animation', {
-      property: 'position',
-      from: `${worldX} ${gameState.boardPos.y + 0.2} ${worldZ}`,
-      to: `${worldX} ${gameState.boardPos.y + 0.04} ${worldZ}`,
-      dur: 300,
-      easing: 'easeOutBounce'
-    });
-    
-    document.getElementById('stonesGroup').appendChild(stone);
-    
-    // 保存状态
-    gameState.stones.push({
-      gx: gridX,
-      gz: gridZ,
-      player: gameState.currentPlayer,
-      mesh: stone
-    });
-    
-    // 切换玩家
-    gameState.currentPlayer = isBlack ? 'white' : 'black';
-    document.getElementById('statusText').textContent = 
-      `第 ${gameState.stones.length} 手 - 当前：${gameState.currentPlayer === 'black' ? '黑方' : '白方'}`;
-  }
-
-  // 重置
-  document.getElementById('resetBtn').addEventListener('click', () => {
-    // 清除棋子
-    const container = document.getElementById('stonesGroup');
-    while(container.firstChild) {
-      container.removeChild(container.firstChild);
-    }
-    gameState.stones = [];
-    gameState.currentPlayer = 'black';
-    
-    // 隐藏棋盘
-    document.getElementById('gameBoard').setAttribute('visible', false);
-    gameState.boardPlaced = false;
-    
-    document.getElementById('resetBtn').style.display = 'none';
-    document.getElementById('placeBtn').style.display = 'block';
-    document.getElementById('statusText').textContent = '移动手机，点击按钮放置棋盘';
-  });
+marker.addEventListener('markerLost', () => {
+    document.getElementById('statusText').textContent = '📱 对准 Hiro 标记（标记丢失）';
+    document.getElementById('markerHint').style.display = 'block';
+});
 </script>
 
 </body>
