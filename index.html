@@ -1,488 +1,220 @@
 <!DOCTYPE html>
-<html>
+<html lang="zh-CN">
 <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>AR.js + A-Frame + Babylon.js 围棋</title>
-    
-    <!-- AR.js with A-Frame -->
-    <script src="https://aframe.io/releases/1.4.0/aframe.min.js"></script>
-    <script src="https://raw.githack.com/AR-js-org/AR.js/master/aframe/build/aframe-ar.js"></script>
-    
-    <!-- Babylon.js for advanced rendering -->
-    <script src="https://cdn.babylonjs.com/babylon.js"></script>
-    <script src="https://cdn.babylonjs.com/gui/babylon.gui.min.js"></script>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>AR 实体围棋盘识别</title>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+    <script async src="https://docs.opencv.org/4.5.4/opencv.js" onload="onOpenCvReady();" type="text/javascript"></script>
 
     <style>
-        body { margin: 0; overflow: hidden; background: #000; font-family: -apple-system, sans-serif; }
-        
-        #ui-layer {
+        body { margin: 0; padding: 0; overflow: hidden; background-color: #000; }
+        video { display: none; }
+        canvas {
             position: absolute;
-            top: 0; left: 0; width: 100%; height: 100%;
-            z-index: 100;
-            pointer-events: none;
-            display: flex;
-            flex-direction: column;
-            justify-content: space-between;
-            padding: 40px 20px;
+            width: 100%; height: 100%;
+            left: 0; top: 0;
+            /* 不再镜像翻转，因为要对齐真实世界 */
         }
-        
-        .info-panel {
-            background: rgba(0,0,0,0.85);
-            color: white;
-            padding: 15px 25px;
-            border-radius: 20px;
-            text-align: center;
-            font-size: 14px;
-            align-self: center;
-            backdrop-filter: blur(10px);
-            max-width: 90%;
-            border: 1px solid rgba(255,255,255,0.2);
-        }
-        
-        .controls {
-            display: flex;
-            gap: 10px;
-            justify-content: center;
-            pointer-events: auto;
-        }
-        
-        button {
-            background: #007AFF;
-            color: white;
-            border: none;
-            padding: 12px 24px;
-            border-radius: 20px;
-            font-size: 16px;
-            font-weight: 600;
-            cursor: pointer;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-        }
-        
-        button.secondary { background: #5856D6; }
-        button.danger { background: #FF3B30; }
-        
-        #loading {
-            position: absolute;
-            top: 50%; left: 50%;
-            transform: translate(-50%, -50%);
-            color: white;
-            font-size: 18px;
-            z-index: 200;
-            background: rgba(0,0,0,0.9);
-            padding: 20px 40px;
-            border-radius: 30px;
-        }
-        
-        .marker-hint {
-            position: absolute;
-            top: 50%; left: 50%;
-            transform: translate(-50%, -50%);
-            width: 200px;
-            height: 200px;
-            border: 2px dashed rgba(255,255,255,0.5);
-            border-radius: 20px;
-            display: none;
-            pointer-events: none;
+        #status {
+            position: absolute; top: 20px; left: 20px; color: lime; z-index: 10;
+            font-family: sans-serif; background: rgba(0,0,0,0.7); padding: 8px; border-radius: 5px;
         }
     </style>
 </head>
 <body>
+    <div id="status">正在加载 OpenCV 和 AI 模型，请稍候... (可能需要十几秒)</div>
+    <video id="input_video" playsinline webkit-playsinline></video>
+    <canvas id="output_canvas"></canvas>
+    <canvas id="process_canvas" style="display:none;"></canvas>
 
-<div id="loading">正在初始化 AR 引擎...</div>
-<div class="marker-hint" id="markerHint"></div>
+    <script>
+        const videoElement = document.getElementById('input_video');
+        const canvasElement = document.getElementById('output_canvas');
+        const canvasCtx = canvasElement.getContext('2d');
+        const processCanvas = document.getElementById('process_canvas');
+        const processCtx = processCanvas.getContext('2d');
+        const statusDiv = document.getElementById('status');
 
-<div id="ui-layer">
-    <div class="info-panel">
-        <div id="statusText">📱 对准 Hiro 标记（或点击"切换模式"使用表面放置）</div>
-        <div style="font-size: 12px; opacity: 0.8; margin-top: 5px;">
-            当前玩家: <span id="currentPlayer" style="color: #FFD700;">黑方</span> | 
-            手数: <span id="moveCount">0</span>
-        </div>
-    </div>
-    
-    <div class="controls">
-        <button onclick="resetGame()">重新开始</button>
-        <button class="secondary" onclick="toggleMode()">切换 AR 模式</button>
-        <button class="danger" onclick="undoMove()">悔棋</button>
-    </div>
-</div>
+        let isOpenCvReady = false;
+        let isHandsReady = false;
+        let detectedBoardCorners = null; // 存储检测到的棋盘四个角
+        const boardSize = 19;
+        let stones = []; 
 
-<!-- AR 场景 -->
-<a-scene 
-    embedded 
-    arjs="sourceType: webcam; trackingMethod: best; debugUIEnabled: false;"
-    renderer="antialias: true; alpha: true; colorManagement: true; highRefreshRate: true"
-    vr-mode-ui="enabled: false">
-    
-    <!-- 资源管理 -->
-    <a-assets>
-        <!-- 使用 Babylon.js 生成棋盘纹理 -->
-        <canvas id="babylonTexture"></canvas>
-        
-        <!-- 棋子声音 -->
-        <audio id="stoneSound" src="data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2teleR0NZKrk7rNsGgxJkNTsvH0nDk+L0O+0dSQPUIjN7sqAJA9GhtLquHEkDkiGzO3JgCQPR4bR6bpwJBBBgsnutm4jEUGAxOu0bSITSHzH7bRuIxKHfsjttG0iE4t+yO2zbCASiny+7rRrHxCJdsHutWsfD4l1wO60ayAPh3O+7rNqHxCIcb7tsmkgD4dyv+60aSAQhXHA7bFoIhCEccDtr2giEIPwve2uaCASg++97KtgIBKI5rztqV8gE4njvO2pXiATiuO77qhfIBSK47nvqV4gFYnjue+qXiAYjOe976peIBmN5r3vp14gGo3mv++nXiAcjue986teICCO573yqV4gJY7nvfKpXiApjue+8qleICyO573zpV4gLY7nvvOlXiAujue+9KleIC+O5770pV4gMI7nvfSlXiAzjue99KVeIDSO577zpV4gNo7nvvOlXiA4jue+86VeIDmO577ypV4gOg7nvvKlXiA7jue+8qVeIDyO577xpV4gPo7nvvGlXiA+jue+8KVeIEGO5r7upV4gRY7mvu6lXiBJjua+7qVeIFGO5r7qpV4gVY7mvualXiBZjua+6pV4gWY7mvuKlXiBdjua+4qVeIGGO5r7epV4gZY7mvu6lXiBpjuW+3qVWA="></audio>
-    </a-assets>
-
-    <!-- 灯光系统 -->
-    <a-light type="ambient" color="#ffffff" intensity="0.6"></a-light>
-    <a-light type="directional" color="#ffffff" intensity="0.8" position="1 2 1" cast-shadow="true"></a-light>
-    <a-light type="point" color="#FFE4B5" intensity="0.4" position="0 2 0"></a-light>
-
-    <!-- AR 标记追踪（Hiro 标记） -->
-    <a-marker type="pattern" url="https://raw.githubusercontent.com/AR-js-org/AR.js/master/data/data/patt.hiro" id="markerTarget" emitevents="true">
-        
-        <!-- 围棋棋盘实体 -->
-        <a-entity id="goBoard" position="0 0 0" rotation="-90 0 0">
-            
-            <!-- 棋盘底座（使用 Babylon 生成的纹理） -->
-            <a-plane 
-                id="boardPlane"
-                width="0.8" 
-                height="0.8"
-                material="src: #babylonTexture; transparent: false; shader: flat"
-                shadow="receive: true; cast: false"
-                class="clickable">
-            </a-plane>
-            
-            <!-- 棋盘厚度 -->
-            <a-box position="0 0 -0.02" width="0.85" height="0.85" depth="0.04" color="#8B4513" shadow="cast: true"></a-box>
-            
-            <!-- 棋子容器 -->
-            <a-entity id="stonesContainer" position="0 0 0.02"></a-entity>
-            
-            <!-- 交互平面（透明的点击层） -->
-            <a-plane 
-                id="clickSurface"
-                position="0 0 0.01"
-                width="0.75"
-                height="0.75"
-                class="clickable"
-                material="visible: false; transparent: true"
-                raycaster-listener>
-            </a-plane>
-            
-            <!-- 星位标记（辅助视觉） -->
-            <a-entity id="starPoints"></a-entity>
-        </a-entity>
-        
-    </a-marker>
-
-    <!-- 相机 -->
-    <a-entity camera>
-        <a-cursor 
-            id="cursor"
-            raycaster="objects: .clickable"
-            color="#007AFF"
-            scale="0.5 0.5 0.5"
-            opacity="0.8">
-        </a-cursor>
-    </a-entity>
-</a-scene>
-
-<script>
-// ==================== Babylon.js 纹理生成器 ====================
-class GoBoardTextureGenerator {
-    constructor() {
-        this.canvas = document.getElementById('babylonTexture');
-        this.canvas.width = 1024;
-        this.canvas.height = 1024;
-        this.engine = new BABYLON.Engine(this.canvas, true, { preserveDrawingBuffer: true, stencil: true });
-        this.scene = new BABYLON.Scene(this.engine);
-        this.generateTexture();
-    }
-    
-    generateTexture() {
-        const scene = this.scene;
-        
-        // 相机（正交）
-        const camera = new BABYLON.ArcRotateCamera("camera", 0, 0, 1, BABYLON.Vector3.Zero(), scene);
-        camera.mode = BABYLON.Camera.ORTHOGRAPHIC_CAMERA;
-        camera.orthoLeft = -1.2;
-        camera.orthoRight = 1.2;
-        camera.orthoTop = 1.2;
-        camera.orthoBottom = -1.2;
-        
-        // 光源
-        new BABYLON.HemisphericLight("light", new BABYLON.Vector3(0, 1, 0), scene);
-        
-        // 棋盘背景（木质材质）
-        const ground = BABYLON.MeshBuilder.CreateGround("ground", {width: 2.4, height: 2.4}, scene);
-        const woodMaterial = new BABYLON.StandardMaterial("wood", scene);
-        woodMaterial.diffuseColor = new BABYLON.Color3(0.9, 0.72, 0); // #E6B800
-        woodMaterial.specularColor = new BABYLON.Color3(0.1, 0.1, 0.1);
-        woodMaterial.roughness = 0.8;
-        
-        // 程序木纹
-        const woodTexture = new BABYLON.NoiseProceduralTexture("perlin", 256, scene);
-        woodTexture.octaves = 3;
-        woodTexture.persistence = 0.8;
-        woodTexture.animationSpeedFactor = 0;
-        woodMaterial.bumpTexture = woodTexture;
-        woodMaterial.bumpTexture.level = 0.5;
-        
-        ground.material = woodMaterial;
-        
-        // 创建 19 路网格线
-        const lines = [];
-        const start = -1.0;
-        const end = 1.0;
-        const step = 2.0 / 18; // 19条线，18个间隔
-        
-        // 横线
-        for(let i=0; i<19; i++) {
-            const z = start + i * step;
-            lines.push([new BABYLON.Vector3(start, 0.01, z), new BABYLON.Vector3(end, 0.01, z)]);
+        // ----- OpenCV 部分 -----
+        function onOpenCvReady() {
+            isOpenCvReady = true;
+            checkReady();
         }
-        // 竖线
-        for(let i=0; i<19; i++) {
-            const x = start + i * step;
-            lines.push([new BABYLON.Vector3(x, 0.01, start), new BABYLON.Vector3(x, 0.01, end)]);
+
+        function checkReady() {
+            if (isOpenCvReady && isHandsReady) {
+                statusDiv.innerText = "系统就绪！请将完整的围棋盘放入画面，确保光线充足且背景有对比度。";
+                startCamera();
+            }
         }
-        
-        const gridColor = new BABYLON.Color4(0.1, 0.1, 0.1, 1);
-        BABYLON.MeshBuilder.CreateLineSystem("grid", {lines: lines, colors: Array(lines.length).fill([gridColor, gridColor])}, scene);
-        
-        // 星位（9个黑点）
-        const starPositions = [3, 9, 15];
-        starPositions.forEach(i => {
-            starPositions.forEach(j => {
-                const x = start + i * step;
-                const z = start + j * step;
-                const star = BABYLON.MeshBuilder.CreateSphere("star", {diameter: 0.08}, scene);
-                star.position = new BABYLON.Vector3(x, 0.02, z);
-                const starMat = new BABYLON.StandardMaterial("starMat", scene);
-                starMat.diffuseColor = new BABYLON.Color3(0.1, 0.1, 0.1);
-                star.material = starMat;
+
+        // 核心：寻找棋盘
+        function findGameBoard(srcMat) {
+            let gray = new cv.Mat();
+            let blurred = new cv.Mat();
+            let edges = new cv.Mat();
+            let contours = new cv.MatVector();
+            let hierarchy = new cv.Mat();
+
+            // 1. 预处理 pipeline
+            cv.cvtColor(srcMat, gray, cv.COLOR_RGBA2GRAY);
+            // 高斯模糊减少噪点 (核大小 (5,5), sigmaX 0)
+            cv.GaussianBlur(gray, blurred, new cv.Size(5, 5), 0);
+            // Canny 边缘检测 (阈值需要根据实际光线调整，这里取 50, 150)
+            cv.Canny(blurred, edges, 50, 150);
+
+            // 2. 寻找轮廓
+            // RETR_EXTERNAL 只找最外层轮廓，CHAIN_APPROX_SIMPLE 压缩垂直/水平/对角线段
+            cv.findContours(edges, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+
+            let maxArea = 0;
+            let bestApprox = null;
+            const minAreaThreshold = (srcMat.cols * srcMat.rows) * 0.1; // 至少占屏幕 10% 面积
+
+            // 3. 遍历找到的轮廓
+            for (let i = 0; i < contours.size(); ++i) {
+                let cnt = contours.get(i);
+                let area = cv.contourArea(cnt);
+
+                if (area > minAreaThreshold) {
+                    let peri = cv.arcLength(cnt, true);
+                    let approx = new cv.Mat();
+                    // 多边形拟合： epsilon 越小拟合越精确，0.02 是经验值
+                    cv.approxPolyDP(cnt, approx, 0.02 * peri, true);
+
+                    // 如果拟合结果有 4 个顶点，且是凸多边形，且面积最大
+                    if (approx.rows === 4 && cv.isContourConvex(approx) && area > maxArea) {
+                        maxArea = area;
+                        if (bestApprox) bestApprox.delete();
+                        bestApprox = approx; // 找到了潜在的棋盘
+                    } else {
+                        approx.delete();
+                    }
+                }
+            }
+
+            // 清理内存
+            gray.delete(); blurred.delete(); edges.delete(); contours.delete(); hierarchy.delete();
+
+            if (bestApprox) {
+                // 提取四个角的坐标
+                let corners = [];
+                for (let i = 0; i < 4; i++) {
+                    corners.push({ x: bestApprox.data32S[i * 2], y: bestApprox.data32S[i * 2 + 1] });
+                }
+                bestApprox.delete();
+                // 需要对角点进行排序（例如：左上，右上，右下，左下），这里暂略，假设顺序大致正确
+                return corners;
+            }
+            return null;
+        }
+
+
+        // ----- MediaPipe & 主循环 -----
+        function onHandsResults(results) {
+            // 1. 准备画布
+            canvasCtx.save();
+            canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+            canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
+
+            // 2. 每隔几帧运行一次 OpenCV (为了性能，不要每帧都跑)
+            // 这里简化为每帧都跑，如果卡顿需要降频
+            if (isOpenCvReady) {
+                // 将当前帧绘制到处理用的 Canvas
+                processCtx.drawImage(results.image, 0, 0, processCanvas.width, processCanvas.height);
+                // 从 Canvas 读取图像数据到 OpenCV Mat
+                let srcMat = cv.imread(processCanvas);
+                // 尝试寻找棋盘
+                detectedBoardCorners = findGameBoard(srcMat);
+                srcMat.delete();
+            }
+
+            // 3. 绘制识别状态
+            if (detectedBoardCorners) {
+                // 绘制找到的棋盘边界（绿色框）
+                canvasCtx.beginPath();
+                canvasCtx.strokeStyle = '#00FF00';
+                canvasCtx.lineWidth = 4;
+                canvasCtx.moveTo(detectedBoardCorners[0].x, detectedBoardCorners[0].y);
+                for (let i = 1; i < 4; i++) {
+                    canvasCtx.lineTo(detectedBoardCorners[i].x, detectedBoardCorners[i].y);
+                }
+                canvasCtx.closePath();
+                canvasCtx.stroke();
+                statusDiv.innerText = "✅ 已锁定实体棋盘";
+
+                // 【未来扩展】：在这里进行透视变换，绘制虚拟棋子网格
+                drawVirtualStonesOnPhysicalBoard(detectedBoardCorners);
+
+            } else {
+                statusDiv.innerText = "⚠️ 未检测到棋盘。请调整角度，确保背景对比清晰。";
+            }
+
+            // 4. 绘制手势 (调试用)
+            if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+                // ... (保留之前的手势绘制代码用于调试)
+                drawConnectors(canvasCtx, results.multiHandLandmarks[0], HAND_CONNECTIONS, {color: '#FFFFFF', lineWidth: 1});
+            }
+            canvasCtx.restore();
+        }
+
+        // 一个占位函数，演示未来如何在物理棋盘上画子
+        function drawVirtualStonesOnPhysicalBoard(corners) {
+             // 这里需要复杂的单应性矩阵计算 (Homography)
+             // 将 2D 屏幕坐标映射到 3D 棋盘平面。
+             // 作为演示，我们只在检测到的中心画一个红点
+             let centerX = (corners[0].x + corners[2].x) / 2;
+             let centerY = (corners[0].y + corners[2].y) / 2;
+             canvasCtx.fillStyle = 'red';
+             canvasCtx.beginPath();
+             canvasCtx.arc(centerX, centerY, 10, 0, Math.PI*2);
+             canvasCtx.fill();
+        }
+
+
+        // ----- 初始化 -----
+        const hands = new Hands({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`});
+        hands.setOptions({
+            maxNumHands: 1,
+            modelComplexity: 1,
+            minDetectionConfidence: 0.5,
+            minTrackingConfidence: 0.5
+        });
+        hands.onResults(onHandsResults);
+        isHandsReady = true;
+        statusDiv.innerText += " | 手势模型已加载";
+        checkReady();
+
+        function startCamera() {
+            const camera = new Camera(videoElement, {
+                onFrame: async () => {
+                    // 同步 Canvas 尺寸
+                    canvasElement.width = videoElement.videoWidth;
+                    canvasElement.height = videoElement.videoHeight;
+                    processCanvas.width = videoElement.videoWidth; // 降低处理分辨率可提高性能
+                    processCanvas.height = videoElement.videoHeight;
+                    await hands.send({image: videoElement});
+                },
+                // 尝试请求较高的分辨率以利于识别，但会增加发热
+                width: 1280, height: 720,
+                facingMode: "environment" // 使用后置摄像头
             });
-        });
-        
-        // 渲染一次到 Canvas
-        this.engine.runRenderLoop(() => {
-            scene.render();
-            // 停止渲染循环，静态纹理即可
-            setTimeout(() => this.engine.stopRenderLoop(), 100);
-        });
-    }
-}
-
-// ==================== 游戏逻辑 ====================
-const GameLogic = {
-    state: {
-        currentPlayer: 'black',
-        stones: [], // {x, z, player, mesh}
-        gridSize: 19,
-        boardSize: 0.75, // 米
-        isARMode: true
-    },
-    
-    init() {
-        // 初始化 Babylon 纹理
-        new GoBoardTextureGenerator();
-        
-        // 隐藏加载
-        document.getElementById('loading').style.display = 'none';
-        
-        // 设置点击监听
-        this.setupInteraction();
-        
-        // 生成星位辅助标记（A-Frame 原生，叠加在 Babylon 纹理上）
-        this.createStarMarkers();
-    },
-    
-    createStarMarkers() {
-        const container = document.getElementById('starPoints');
-        const positions = [3, 9, 15];
-        const step = 0.75 / 18; // 与 Babylon 中的 step 对应
-        
-        positions.forEach(i => {
-            positions.forEach(j => {
-                const marker = document.createElement('a-sphere');
-                const x = -0.375 + i * step;
-                const z = -0.375 + j * step;
-                marker.setAttribute('position', `${x} 0.005 ${z}`);
-                marker.setAttribute('radius', '0.008');
-                marker.setAttribute('color', '#1a1a1a');
-                container.appendChild(marker);
-            });
-        });
-    },
-    
-    setupInteraction() {
-        // 使用 raycaster 监听点击
-        const clickSurface = document.getElementById('clickSurface');
-        
-        clickSurface.addEventListener('click', (e) => {
-            if(!this.state.isARMode) return;
-            
-            // 获取交点位置
-            const intersection = e.detail.intersection;
-            if(!intersection) return;
-            
-            const point = intersection.point;
-            
-            // 转换为棋盘本地坐标（棋盘旋转了 -90度 X轴，所以 Y 在这里是高度）
-            // 注意：A-Frame 的坐标系，棋盘是平放的（rotation -90 0 0）
-            const localX = point.x;
-            const localZ = point.z; // 在旋转后的坐标系中
-            
-            // 吸附到最近的交叉点
-            const gridX = Math.round((localX + 0.375) / (0.75/18));
-            const gridZ = Math.round((localZ + 0.375) / (0.75/18));
-            
-            // 边界检查
-            if(gridX < 0 || gridX > 18 || gridZ < 0 || gridZ > 18) return;
-            
-            // 检查是否已有棋子
-            const exists = this.state.stones.find(s => s.gx === gridX && s.gz === gridZ);
-            if(exists) return;
-            
-            this.placeStone(gridX, gridZ);
-        });
-    },
-    
-    placeStone(gx, gz) {
-        const container = document.getElementById('stonesContainer');
-        const step = 0.75 / 18;
-        const x = -0.375 + gx * step;
-        const z = -0.375 + gz * step;
-        
-        // 创建棋子实体
-        const stone = document.createElement('a-sphere');
-        const color = this.state.currentPlayer === 'black' ? '#0d0d0d' : '#f5f5f5';
-        const yPos = 0.02 + (this.state.stones.length * 0.0001); // 防 z-fighting
-        
-        stone.setAttribute('position', `${x} ${yPos} ${z}`);
-        stone.setAttribute('radius', '0.018');
-        stone.setAttribute('color', color);
-        stone.setAttribute('shadow', 'cast: true');
-        stone.setAttribute('class', 'stone');
-        
-        // 落子动画（从上方落下）
-        stone.setAttribute('animation', {
-            property: 'position',
-            from: `${x} 0.2 ${z}`,
-            to: `${x} ${yPos} ${z}`,
-            dur: 400,
-            easing: 'easeOutBounce'
-        });
-        
-        // 材质细节（使用 Babylon 风格的材质属性通过 A-Frame 设置）
-        if(this.state.currentPlayer === 'white') {
-            stone.setAttribute('material', 'roughness: 0.2; metalness: 0.1');
-        } else {
-            stone.setAttribute('material', 'roughness: 0.4; metalness: 0.0');
+            camera.start();
         }
         
-        container.appendChild(stone);
-        
-        // 播放声音
-        const audio = document.getElementById('stoneSound');
-        audio.currentTime = 0;
-        audio.play().catch(e => {});
-        
-        // 保存状态
-        this.state.stones.push({
-            gx, gz, 
-            player: this.state.currentPlayer,
-            element: stone
+        // 窗口调整处理
+        window.addEventListener('resize', () => {
+             canvasElement.width = window.innerWidth;
+             canvasElement.height = window.innerHeight;
         });
-        
-        // 切换玩家
-        this.state.currentPlayer = this.state.currentPlayer === 'black' ? 'white' : 'black';
-        this.updateUI();
-        
-        // 检查提子（简单逻辑：四周被围则提，实际应实现完整围棋规则）
-        this.checkCaptures(gx, gz);
-    },
-    
-    checkCaptures(x, z) {
-        // 简化版：不实现复杂提子逻辑，仅演示放置
-        // 实际项目应使用连通域算法检查气
-    },
-    
-    updateUI() {
-        document.getElementById('currentPlayer').textContent = 
-            this.state.currentPlayer === 'black' ? '黑方' : '白方';
-        document.getElementById('currentPlayer').style.color = 
-            this.state.currentPlayer === 'black' ? '#FFD700' : '#E0E0E0';
-        document.getElementById('moveCount').textContent = this.state.stones.length;
-    },
-    
-    reset() {
-        const container = document.getElementById('stonesContainer');
-        while(container.firstChild) {
-            container.removeChild(container.firstChild);
-        }
-        this.state.stones = [];
-        this.state.currentPlayer = 'black';
-        this.updateUI();
-    },
-    
-    undo() {
-        if(this.state.stones.length === 0) return;
-        const last = this.state.stones.pop();
-        last.element.remove();
-        this.state.currentPlayer = last.player; // 回退玩家
-        this.updateUI();
-    }
-};
 
-// ==================== 全局控制函数 ====================
-function resetGame() {
-    GameLogic.reset();
-}
-
-function undoMove() {
-    GameLogic.undo();
-}
-
-function toggleMode() {
-    // 切换标记追踪和表面放置模式
-    const marker = document.getElementById('markerTarget');
-    const status = document.getElementById('statusText');
-    
-    if(GameLogic.state.isARMode) {
-        // 切换到表面检测模式（需要重新加载场景使用 hit-test）
-        status.textContent = '📐 表面放置模式开发中，当前请使用标记模式';
-        alert('提示：AR.js 表面检测需要额外的 Three.js 集成，当前版本请使用 Hiro 标记模式');
-    } else {
-        GameLogic.state.isARMode = true;
-        status.textContent = '📱 对准 Hiro 标记（打印或显示在另一台设备上）';
-    }
-}
-
-// ==================== 初始化 ====================
-window.addEventListener('load', () => {
-    // 延迟初始化确保 AR.js 就绪
-    setTimeout(() => {
-        GameLogic.init();
-        
-        // 检查相机权限
-        if(navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-            navigator.mediaDevices.getUserMedia({ video: true })
-                .then(stream => {
-                    stream.getTracks().forEach(track => track.stop());
-                })
-                .catch(err => {
-                    alert('请允许相机权限以使用 AR 功能');
-                });
-        }
-    }, 1000);
-});
-
-// 处理标记找到/丢失事件
-const marker = document.getElementById('markerTarget');
-marker.addEventListener('markerFound', () => {
-    document.getElementById('statusText').innerHTML = '✅ 检测到棋盘标记，点击网格交叉点下棋<br><small>使用"悔棋"按钮撤销误操作</small>';
-    document.getElementById('markerHint').style.display = 'none';
-});
-
-marker.addEventListener('markerLost', () => {
-    document.getElementById('statusText').textContent = '📱 对准 Hiro 标记（标记丢失）';
-    document.getElementById('markerHint').style.display = 'block';
-});
-</script>
-
+    </script>
 </body>
 </html>
