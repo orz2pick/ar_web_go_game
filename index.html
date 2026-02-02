@@ -3,218 +3,610 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>AR 实体围棋盘识别</title>
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
-    <script async src="https://docs.opencv.org/4.5.4/opencv.js" onload="onOpenCvReady();" type="text/javascript"></script>
-
+    <title>围棋棋盘识别 - OpenCV</title>
+    
+    <!-- OpenCV.js -->
+    <script async src="https://docs.opencv.org/4.8.0/opencv.js" onload="onOpenCvReady();"></script>
+    
     <style>
-        body { margin: 0; padding: 0; overflow: hidden; background-color: #000; }
-        video { display: none; }
-        canvas {
-            position: absolute;
-            width: 100%; height: 100%;
-            left: 0; top: 0;
-            /* 不再镜像翻转，因为要对齐真实世界 */
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        
+        body {
+            background: #1a1a1a;
+            font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+            overflow: hidden;
         }
-        #status {
-            position: absolute; top: 20px; left: 20px; color: lime; z-index: 10;
-            font-family: sans-serif; background: rgba(0,0,0,0.7); padding: 8px; border-radius: 5px;
+        
+        #container {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+        }
+        
+        /* 视频输入（隐藏） */
+        #videoInput {
+            display: none;
+        }
+        
+        /* 主显示画布 */
+        #canvasOutput {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            max-width: 100%;
+            max-height: 100%;
+            box-shadow: 0 0 40px rgba(0,0,0,0.8);
+        }
+        
+        /* UI 层 */
+        #ui {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 10;
+        }
+        
+        .panel {
+            position: absolute;
+            background: rgba(0,0,0,0.85);
+            color: white;
+            padding: 15px 20px;
+            border-radius: 12px;
+            backdrop-filter: blur(10px);
+            pointer-events: auto;
+        }
+        
+        #statusPanel {
+            top: 20px;
+            left: 20px;
+            min-width: 200px;
+        }
+        
+        #controls {
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            gap: 10px;
+        }
+        
+        #fpsCounter {
+            top: 20px;
+            right: 20px;
+            font-family: monospace;
+            color: #00ff00;
+        }
+        
+        .btn {
+            background: #007AFF;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 8px;
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        
+        .btn:hover { background: #0056b3; }
+        .btn:disabled { background: #666; opacity: 0.6; }
+        .btn.active { background: #34C759; }
+        
+        #loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: white;
+            font-size: 18px;
+            text-align: center;
+            z-index: 100;
+        }
+        
+        .spinner {
+            width: 40px;
+            height: 40px;
+            border: 4px solid rgba(255,255,255,0.3);
+            border-top-color: #007AFF;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 15px;
+        }
+        
+        @keyframes spin { to { transform: rotate(360deg); } }
+        
+        .stat-row {
+            display: flex;
+            justify-content: space-between;
+            margin: 5px 0;
+            font-size: 13px;
+        }
+        
+        .stat-label { color: #aaa; }
+        .stat-value { color: #fff; font-weight: 600; }
+        
+        #debugInfo {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            font-size: 11px;
+            color: rgba(255,255,255,0.6);
+            max-width: 250px;
+            text-align: right;
         }
     </style>
 </head>
 <body>
-    <div id="status">正在加载 OpenCV 和 AI 模型，请稍候... (可能需要十几秒)</div>
-    <video id="input_video" playsinline webkit-playsinline></video>
-    <canvas id="output_canvas"></canvas>
-    <canvas id="process_canvas" style="display:none;"></canvas>
 
-    <script>
-        const videoElement = document.getElementById('input_video');
-        const canvasElement = document.getElementById('output_canvas');
-        const canvasCtx = canvasElement.getContext('2d');
-        const processCanvas = document.getElementById('process_canvas');
-        const processCtx = processCanvas.getContext('2d');
-        const statusDiv = document.getElementById('status');
+<div id="container">
+    <!-- 加载提示 -->
+    <div id="loading">
+        <div class="spinner"></div>
+        <div>正在加载 OpenCV 引擎...</div>
+        <div style="font-size: 12px; opacity: 0.7; margin-top: 10px;">首次加载约需 5-10 秒</div>
+    </div>
+    
+    <!-- 视频输入 -->
+    <video id="videoInput" playsinline></video>
+    
+    <!-- 输出画布 -->
+    <canvas id="canvasOutput"></canvas>
+    
+    <!-- UI 层 -->
+    <div id="ui" style="display: none;">
+        <div class="panel" id="statusPanel">
+            <div style="font-weight: 600; margin-bottom: 10px; color: #007AFF;">📹 棋盘检测状态</div>
+            <div class="stat-row">
+                <span class="stat-label">检测状态</span>
+                <span class="stat-value" id="detectStatus">未开始</span>
+            </div>
+            <div class="stat-row">
+                <span class="stat-label">棋盘角点</span>
+                <span class="stat-value" id="cornerCount">0</span>
+            </div>
+            <div class="stat-row">
+                <span class="stat-label">星位标记</span>
+                <span class="stat-value" id="starCount">0</span>
+            </div>
+            <div class="stat-row">
+                <span class="stat-label">透视质量</span>
+                <span class="stat-value" id="qualityScore">-</span>
+            </div>
+        </div>
+        
+        <div class="panel" id="fpsCounter">
+            FPS: <span id="fps">0</span>
+        </div>
+        
+        <div class="panel" id="controls">
+            <button class="btn" id="btnStart" onclick="startCamera()" disabled>启动相机</button>
+            <button class="btn" id="btnPause" onclick="togglePause()" disabled>暂停</button>
+            <button class="btn" onclick="toggleDebug()">调试模式</button>
+        </div>
+        
+        <div id="debugInfo">
+            提示：确保棋盘光线充足、对比度明显<br>
+            支持 9/13/19 路标准棋盘
+        </div>
+    </div>
+</div>
 
-        let isOpenCvReady = false;
-        let isHandsReady = false;
-        let detectedBoardCorners = null; // 存储检测到的棋盘四个角
-        const boardSize = 19;
-        let stones = []; 
+<script>
+let cv = null;
+let video = document.getElementById('videoInput');
+let canvas = document.getElementById('canvasOutput');
+let ctx = canvas.getContext('2d');
+let isProcessing = false;
+let isPaused = false;
+let debugMode = false;
+let lastTime = 0;
+let fps = 0;
 
-        // ----- OpenCV 部分 -----
-        function onOpenCvReady() {
-            isOpenCvReady = true;
-            checkReady();
-        }
+// 检测参数
+const PARAMS = {
+    cannyThreshold1: 50,
+    cannyThreshold2: 150,
+    houghThreshold: 100,
+    minLineLength: 100,
+    maxLineGap: 10,
+    cornerQuality: 0.01,
+    cornerMinDist: 20
+};
 
-        function checkReady() {
-            if (isOpenCvReady && isHandsReady) {
-                statusDiv.innerText = "系统就绪！请将完整的围棋盘放入画面，确保光线充足且背景有对比度。";
-                startCamera();
+// 棋盘状态
+let boardState = {
+    detected: false,
+    corners: [],
+    stars: [],
+    gridSize: 19,
+    homography: null
+};
+
+// OpenCV 加载完成
+function onOpenCvReady() {
+    cv = window.cv;
+    document.getElementById('loading').style.display = 'none';
+    document.getElementById('ui').style.display = 'block';
+    document.getElementById('btnStart').disabled = false;
+    console.log('OpenCV.js 加载完成，版本:', cv.getBuildInformation);
+}
+
+// 启动摄像头
+async function startCamera() {
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+            video: {
+                facingMode: 'environment', // 后置摄像头
+                width: { ideal: 1280 },
+                height: { ideal: 720 }
             }
-        }
-
-        // 核心：寻找棋盘
-        function findGameBoard(srcMat) {
-            let gray = new cv.Mat();
-            let blurred = new cv.Mat();
-            let edges = new cv.Mat();
-            let contours = new cv.MatVector();
-            let hierarchy = new cv.Mat();
-
-            // 1. 预处理 pipeline
-            cv.cvtColor(srcMat, gray, cv.COLOR_RGBA2GRAY);
-            // 高斯模糊减少噪点 (核大小 (5,5), sigmaX 0)
-            cv.GaussianBlur(gray, blurred, new cv.Size(5, 5), 0);
-            // Canny 边缘检测 (阈值需要根据实际光线调整，这里取 50, 150)
-            cv.Canny(blurred, edges, 50, 150);
-
-            // 2. 寻找轮廓
-            // RETR_EXTERNAL 只找最外层轮廓，CHAIN_APPROX_SIMPLE 压缩垂直/水平/对角线段
-            cv.findContours(edges, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
-
-            let maxArea = 0;
-            let bestApprox = null;
-            const minAreaThreshold = (srcMat.cols * srcMat.rows) * 0.1; // 至少占屏幕 10% 面积
-
-            // 3. 遍历找到的轮廓
-            for (let i = 0; i < contours.size(); ++i) {
-                let cnt = contours.get(i);
-                let area = cv.contourArea(cnt);
-
-                if (area > minAreaThreshold) {
-                    let peri = cv.arcLength(cnt, true);
-                    let approx = new cv.Mat();
-                    // 多边形拟合： epsilon 越小拟合越精确，0.02 是经验值
-                    cv.approxPolyDP(cnt, approx, 0.02 * peri, true);
-
-                    // 如果拟合结果有 4 个顶点，且是凸多边形，且面积最大
-                    if (approx.rows === 4 && cv.isContourConvex(approx) && area > maxArea) {
-                        maxArea = area;
-                        if (bestApprox) bestApprox.delete();
-                        bestApprox = approx; // 找到了潜在的棋盘
-                    } else {
-                        approx.delete();
-                    }
-                }
-            }
-
-            // 清理内存
-            gray.delete(); blurred.delete(); edges.delete(); contours.delete(); hierarchy.delete();
-
-            if (bestApprox) {
-                // 提取四个角的坐标
-                let corners = [];
-                for (let i = 0; i < 4; i++) {
-                    corners.push({ x: bestApprox.data32S[i * 2], y: bestApprox.data32S[i * 2 + 1] });
-                }
-                bestApprox.delete();
-                // 需要对角点进行排序（例如：左上，右上，右下，左下），这里暂略，假设顺序大致正确
-                return corners;
-            }
-            return null;
-        }
-
-
-        // ----- MediaPipe & 主循环 -----
-        function onHandsResults(results) {
-            // 1. 准备画布
-            canvasCtx.save();
-            canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
-            canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
-
-            // 2. 每隔几帧运行一次 OpenCV (为了性能，不要每帧都跑)
-            // 这里简化为每帧都跑，如果卡顿需要降频
-            if (isOpenCvReady) {
-                // 将当前帧绘制到处理用的 Canvas
-                processCtx.drawImage(results.image, 0, 0, processCanvas.width, processCanvas.height);
-                // 从 Canvas 读取图像数据到 OpenCV Mat
-                let srcMat = cv.imread(processCanvas);
-                // 尝试寻找棋盘
-                detectedBoardCorners = findGameBoard(srcMat);
-                srcMat.delete();
-            }
-
-            // 3. 绘制识别状态
-            if (detectedBoardCorners) {
-                // 绘制找到的棋盘边界（绿色框）
-                canvasCtx.beginPath();
-                canvasCtx.strokeStyle = '#00FF00';
-                canvasCtx.lineWidth = 4;
-                canvasCtx.moveTo(detectedBoardCorners[0].x, detectedBoardCorners[0].y);
-                for (let i = 1; i < 4; i++) {
-                    canvasCtx.lineTo(detectedBoardCorners[i].x, detectedBoardCorners[i].y);
-                }
-                canvasCtx.closePath();
-                canvasCtx.stroke();
-                statusDiv.innerText = "✅ 已锁定实体棋盘";
-
-                // 【未来扩展】：在这里进行透视变换，绘制虚拟棋子网格
-                drawVirtualStonesOnPhysicalBoard(detectedBoardCorners);
-
-            } else {
-                statusDiv.innerText = "⚠️ 未检测到棋盘。请调整角度，确保背景对比清晰。";
-            }
-
-            // 4. 绘制手势 (调试用)
-            if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
-                // ... (保留之前的手势绘制代码用于调试)
-                drawConnectors(canvasCtx, results.multiHandLandmarks[0], HAND_CONNECTIONS, {color: '#FFFFFF', lineWidth: 1});
-            }
-            canvasCtx.restore();
-        }
-
-        // 一个占位函数，演示未来如何在物理棋盘上画子
-        function drawVirtualStonesOnPhysicalBoard(corners) {
-             // 这里需要复杂的单应性矩阵计算 (Homography)
-             // 将 2D 屏幕坐标映射到 3D 棋盘平面。
-             // 作为演示，我们只在检测到的中心画一个红点
-             let centerX = (corners[0].x + corners[2].x) / 2;
-             let centerY = (corners[0].y + corners[2].y) / 2;
-             canvasCtx.fillStyle = 'red';
-             canvasCtx.beginPath();
-             canvasCtx.arc(centerX, centerY, 10, 0, Math.PI*2);
-             canvasCtx.fill();
-        }
-
-
-        // ----- 初始化 -----
-        const hands = new Hands({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`});
-        hands.setOptions({
-            maxNumHands: 1,
-            modelComplexity: 1,
-            minDetectionConfidence: 0.5,
-            minTrackingConfidence: 0.5
         });
-        hands.onResults(onHandsResults);
-        isHandsReady = true;
-        statusDiv.innerText += " | 手势模型已加载";
-        checkReady();
+        
+        video.srcObject = stream;
+        video.play();
+        
+        document.getElementById('btnStart').textContent = '相机运行中';
+        document.getElementById('btnStart').classList.add('active');
+        document.getElementById('btnPause').disabled = false;
+        
+        // 等待视频就绪
+        video.onloadedmetadata = () => {
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            isProcessing = true;
+            requestAnimationFrame(processFrame);
+        };
+        
+    } catch (err) {
+        alert('摄像头启动失败: ' + err.message);
+    }
+}
 
-        function startCamera() {
-            const camera = new Camera(videoElement, {
-                onFrame: async () => {
-                    // 同步 Canvas 尺寸
-                    canvasElement.width = videoElement.videoWidth;
-                    canvasElement.height = videoElement.videoHeight;
-                    processCanvas.width = videoElement.videoWidth; // 降低处理分辨率可提高性能
-                    processCanvas.height = videoElement.videoHeight;
-                    await hands.send({image: videoElement});
-                },
-                // 尝试请求较高的分辨率以利于识别，但会增加发热
-                width: 1280, height: 720,
-                facingMode: "environment" // 使用后置摄像头
-            });
-            camera.start();
+// 暂停/继续
+function togglePause() {
+    isPaused = !isPaused;
+    document.getElementById('btnPause').textContent = isPaused ? '继续' : '暂停';
+}
+
+// 切换调试模式
+function toggleDebug() {
+    debugMode = !debugMode;
+}
+
+// 主处理循环
+function processFrame(timestamp) {
+    if (!isProcessing) return;
+    
+    // 计算 FPS
+    if (timestamp - lastTime > 1000) {
+        document.getElementById('fps').textContent = fps;
+        fps = 0;
+        lastTime = timestamp;
+    }
+    fps++;
+    
+    if (!isPaused && video.readyState === 4) {
+        // 绘制原图
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        
+        // OpenCV 处理
+        detectBoard();
+    }
+    
+    requestAnimationFrame(processFrame);
+}
+
+// 核心检测逻辑
+function detectBoard() {
+    if (!cv) return;
+    
+    try {
+        // 读取当前帧到 Mat
+        let src = cv.imread(canvas);
+        let gray = new cv.Mat();
+        let blurred = new cv.Mat();
+        
+        // 1. 预处理：灰度 + 高斯模糊
+        cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
+        cv.GaussianBlur(gray, blurred, new cv.Size(5, 5), 0);
+        
+        // 2. 边缘检测
+        let edges = new cv.Mat();
+        cv.Canny(blurred, edges, PARAMS.cannyThreshold1, PARAMS.cannyThreshold2);
+        
+        // 3. 膨胀连接断线
+        let dilated = new cv.Mat();
+        let kernel = cv.Mat.ones(3, 3, cv.CV_8U);
+        cv.dilate(edges, dilated, kernel);
+        
+        // 4. 查找轮廓
+        let contours = new cv.MatVector();
+        let hierarchy = new cv.Mat();
+        cv.findContours(dilated, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+        
+        // 5. 寻找最大四边形（棋盘）
+        let boardContour = findBoardContour(contours);
+        
+        if (boardContour) {
+            // 6. 透视校正
+            let warped = warpPerspective(src, boardContour);
+            
+            // 7. 在校正后的图像上检测星位
+            let stars = detectStars(warped);
+            
+            // 8. 将星位映射回原图并绘制
+            drawResults(src, boardContour, stars);
+            
+            // 9. 更新 UI
+            updateUI(true, boardContour.rows, stars.length);
+            
+            warped.delete();
+        } else {
+            updateUI(false, 0, 0);
         }
         
-        // 窗口调整处理
-        window.addEventListener('resize', () => {
-             canvasElement.width = window.innerWidth;
-             canvasElement.height = window.innerHeight;
-        });
+        // 清理
+        src.delete(); gray.delete(); blurred.delete();
+        edges.delete(); dilated.delete(); kernel.delete();
+        contours.delete(); hierarchy.delete();
+        
+    } catch (e) {
+        console.error('检测错误:', e);
+    }
+}
 
-    </script>
+// 寻找棋盘轮廓
+function findBoardContour(contours) {
+    let maxArea = 0;
+    let bestContour = null;
+    
+    for (let i = 0; i < contours.size(); i++) {
+        let cnt = contours.get(i);
+        let area = cv.contourArea(cnt);
+        
+        // 过滤太小的区域
+        if (area < canvas.width * canvas.height * 0.1) continue;
+        
+        // 近似多边形
+        let peri = cv.arcLength(cnt, true);
+        let approx = new cv.Mat();
+        cv.approxPolyDP(cnt, approx, 0.02 * peri, true);
+        
+        // 寻找四边形
+        if (approx.rows === 4 && area > maxArea) {
+            maxArea = area;
+            bestContour = approx.clone();
+        }
+        
+        approx.delete();
+        cnt.delete();
+    }
+    
+    return bestContour;
+}
+
+// 透视校正
+function warpPerspective(src, contour) {
+    // 获取四个角点
+    let points = [];
+    for (let i = 0; i < 4; i++) {
+        points.push({
+            x: contour.data32S[i * 2],
+            y: contour.data32S[i * 2 + 1]
+        });
+    }
+    
+    // 排序角点：左上、右上、右下、左下
+    points.sort((a, b) => a.y - b.y);
+    let top = points.slice(0, 2).sort((a, b) => a.x - b.x);
+    let bottom = points.slice(2).sort((a, b) => a.x - b.x);
+    let ordered = [top[0], top[1], bottom[1], bottom[0]];
+    
+    // 目标正方形
+    let size = 800;
+    let dstPoints = cv.matFromArray(4, 1, cv.CV_32FC2, [
+        0, 0,
+        size, 0,
+        size, size,
+        0, size
+    ]);
+    
+    let srcPoints = cv.matFromArray(4, 1, cv.CV_32FC2, [
+        ordered[0].x, ordered[0].y,
+        ordered[1].x, ordered[1].y,
+        ordered[2].x, ordered[2].y,
+        ordered[3].x, ordered[3].y
+    ]);
+    
+    // 计算变换矩阵
+    let M = cv.getPerspectiveTransform(srcPoints, dstPoints);
+    let warped = new cv.Mat();
+    cv.warpPerspective(src, warped, M, new cv.Size(size, size));
+    
+    // 保存角点供后续使用
+    boardState.corners = ordered;
+    
+    M.delete(); srcPoints.delete(); dstPoints.delete();
+    
+    return warped;
+}
+
+// 检测星位（9个黑点）
+function detectStars(warped) {
+    let gray = new cv.Mat();
+    cv.cvtColor(warped, gray, cv.COLOR_RGBA2GRAY);
+    
+    // 二值化
+    let binary = new cv.Mat();
+    cv.adaptiveThreshold(gray, binary, 255, cv.ADAPTIVE_THRESH_GAUSSIAN_C, cv.THRESH_BINARY_INV, 11, 2);
+    
+    // 查找圆/斑点（星位）
+    let circles = new cv.Mat();
+    cv.HoughCircles(gray, circles, cv.HOUGH_GRADIENT, 1, 30, 50, 20, 5, 30);
+    
+    let stars = [];
+    let size = warped.rows;
+    let cellSize = size / 18; // 19路棋盘
+    
+    // 验证检测到的圆是否在标准星位位置
+    const starPositions = [
+        [3, 3], [3, 9], [3, 15],
+        [9, 3], [9, 9], [9, 15],
+        [15, 3], [15, 9], [15, 15]
+    ];
+    
+    for (let i = 0; i < circles.cols; i++) {
+        let x = circles.data32F[i * 3];
+        let y = circles.data32F[i * 3 + 1];
+        let r = circles.data32F[i * 3 + 2];
+        
+        // 转换为网格坐标
+        let gridX = Math.round(x / cellSize);
+        let gridY = Math.round(y / cellSize);
+        
+        // 检查是否匹配标准星位
+        let isStar = starPositions.some(pos => 
+            Math.abs(pos[0] - gridX) <= 1 && Math.abs(pos[1] - gridY) <= 1
+        );
+        
+        if (isStar) {
+            stars.push({ x, y, gridX, gridY, r });
+        }
+    }
+    
+    gray.delete(); binary.delete(); circles.delete();
+    
+    return stars;
+}
+
+// 绘制结果
+function drawResults(src, contour, stars) {
+    // 绘制棋盘轮廓
+    ctx.strokeStyle = '#00ff00';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    
+    for (let i = 0; i < 4; i++) {
+        let x = contour.data32S[i * 2];
+        let y = contour.data32S[i * 2 + 1];
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+    }
+    ctx.closePath();
+    ctx.stroke();
+    
+    // 绘制角点
+    ctx.fillStyle = '#ff0000';
+    for (let i = 0; i < 4; i++) {
+        let x = contour.data32S[i * 2];
+        let y = contour.data32S[i * 2 + 1];
+        ctx.beginPath();
+        ctx.arc(x, y, 8, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // 标注编号
+        ctx.fillStyle = '#fff';
+        ctx.font = 'bold 16px sans-serif';
+        ctx.fillText(String(i+1), x + 10, y - 10);
+        ctx.fillStyle = '#ff0000';
+    }
+    
+    // 绘制星位（映射回原图坐标）
+    if (stars.length > 0 && boardState.corners.length === 4) {
+        // 计算逆透视变换
+        let size = 800;
+        let dstPoints = cv.matFromArray(4, 1, cv.CV_32FC2, [0, 0, size, 0, size, size, 0, size]);
+        let srcPoints = cv.matFromArray(4, 1, cv.CV_32FC2, [
+            boardState.corners[0].x, boardState.corners[0].y,
+            boardState.corners[1].x, boardState.corners[1].y,
+            boardState.corners[2].x, boardState.corners[2].y,
+            boardState.corners[3].x, boardState.corners[3].y
+        ]);
+        
+        let M = cv.getPerspectiveTransform(dstPoints, srcPoints);
+        
+        stars.forEach((star, idx) => {
+            // 变换坐标
+            let pt = cv.matFromArray(1, 1, cv.CV_32FC2, [star.x, star.y]);
+            let transformed = new cv.Mat();
+            cv.perspectiveTransform(pt, transformed, M);
+            
+            let tx = transformed.data32F[0];
+            let ty = transformed.data32F[1];
+            
+            // 绘制星位标记
+            ctx.strokeStyle = '#007AFF';
+            ctx.fillStyle = 'rgba(0, 122, 255, 0.3)';
+            ctx.lineWidth = 2;
+            
+            // 外圈
+            ctx.beginPath();
+            ctx.arc(tx, ty, 15, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.stroke();
+            
+            // 十字
+            ctx.beginPath();
+            ctx.moveTo(tx - 10, ty);
+            ctx.lineTo(tx + 10, ty);
+            ctx.moveTo(tx, ty - 10);
+            ctx.lineTo(tx, ty + 10);
+            ctx.stroke();
+            
+            // 编号
+            ctx.fillStyle = '#fff';
+            ctx.font = 'bold 12px sans-serif';
+            ctx.fillText(`★${idx+1}`, tx + 18, ty + 4);
+            
+            pt.delete(); transformed.delete();
+        });
+        
+        M.delete(); dstPoints.delete(); srcPoints.delete();
+    }
+    
+    // 调试信息
+    if (debugMode) {
+        ctx.fillStyle = 'rgba(0,0,0,0.7)';
+        ctx.fillRect(10, canvas.height - 100, 300, 90);
+        ctx.fillStyle = '#0f0';
+        ctx.font = '12px monospace';
+        ctx.fillText(`Contours detected`, 20, canvas.height - 80);
+        ctx.fillText(`Board area: ${cv.contourArea(contour).toFixed(0)} px²`, 20, canvas.height - 60);
+        ctx.fillText(`Stars found: ${stars.length}/9`, 20, canvas.height - 40);
+        ctx.fillText(`Confidence: ${(stars.length/9*100).toFixed(0)}%`, 20, canvas.height - 20);
+    }
+}
+
+// 更新 UI
+function updateUI(detected, corners, stars) {
+    document.getElementById('detectStatus').textContent = detected ? '✅ 已检测' : '❌ 未检测';
+    document.getElementById('detectStatus').style.color = detected ? '#34C759' : '#FF3B30';
+    document.getElementById('cornerCount').textContent = corners;
+    document.getElementById('starCount').textContent = `${stars}/9`;
+    
+    let quality = '-';
+    if (detected) {
+        if (stars >= 7) quality = '优秀';
+        else if (stars >= 5) quality = '良好';
+        else if (stars >= 3) quality = '一般';
+        else quality = '较差';
+    }
+    document.getElementById('qualityScore').textContent = quality;
+    document.getElementById('qualityScore').style.color = 
+        quality === '优秀' ? '#34C759' : 
+        quality === '良好' ? '#007AFF' : 
+        quality === '一般' ? '#FF9500' : '#FF3B30';
+}
+
+// 清理
+window.onbeforeunload = () => {
+    isProcessing = false;
+};
+</script>
+
 </body>
 </html>
