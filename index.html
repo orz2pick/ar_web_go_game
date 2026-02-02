@@ -3,194 +3,123 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>围棋棋盘识别 - OpenCV</title>
-    
-    <!-- OpenCV.js -->
+    <title>围棋棋盘增强识别 Pro</title>
     <script async src="https://docs.opencv.org/4.8.0/opencv.js" onload="onOpenCvReady();"></script>
-    
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { background: #1a1a1a; font-family: -apple-system, sans-serif; overflow: hidden; }
+        #container { position: relative; width: 100vw; height: 100vh; }
+        #videoInput { display: none; }
+        #canvasOutput { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); max-width: 100%; max-height: 100%; box-shadow: 0 0 30px rgba(0,0,0,0.8); }
         
-        body {
-            background: #1a1a1a;
-            font-family: -apple-system, BlinkMacSystemFont, sans-serif;
-            overflow: hidden;
-        }
+        .panel { position: absolute; background: rgba(0,0,0,0.85); color: white; padding: 15px; border-radius: 12px; backdrop-filter: blur(10px); z-index: 10; pointer-events: auto; border: 1px solid rgba(255,255,255,0.1); }
+        #statusPanel { top: 20px; left: 20px; width: 240px; }
+        #detailPanel { top: 20px; right: 20px; width: 180px; font-size: 12px; }
+        #fpsCounter { bottom: 100px; right: 20px; font-family: monospace; color: #00ff00; font-size: 14px; }
+        #controls { bottom: 30px; left: 50%; transform: translateX(-50%); display: flex; gap: 10px; }
         
-        #container {
-            position: relative;
-            width: 100vw;
-            height: 100vh;
-        }
-        
-        /* 视频输入（隐藏） */
-        #videoInput {
-            display: none;
-        }
-        
-        /* 主显示画布 */
-        #canvasOutput {
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            max-width: 100%;
-            max-height: 100%;
-            box-shadow: 0 0 40px rgba(0,0,0,0.8);
-        }
-        
-        /* UI 层 */
-        #ui {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            pointer-events: none;
-            z-index: 10;
-        }
-        
-        .panel {
-            position: absolute;
-            background: rgba(0,0,0,0.85);
-            color: white;
-            padding: 15px 20px;
-            border-radius: 12px;
-            backdrop-filter: blur(10px);
-            pointer-events: auto;
-        }
-        
-        #statusPanel {
-            top: 20px;
-            left: 20px;
-            min-width: 200px;
-        }
-        
-        #controls {
-            bottom: 20px;
-            left: 50%;
-            transform: translateX(-50%);
-            display: flex;
-            gap: 10px;
-        }
-        
-        #fpsCounter {
-            top: 20px;
-            right: 20px;
-            font-family: monospace;
-            color: #00ff00;
-        }
-        
-        .btn {
-            background: #007AFF;
-            color: white;
-            border: none;
-            padding: 10px 20px;
-            border-radius: 8px;
-            font-size: 14px;
-            cursor: pointer;
-            transition: all 0.2s;
-        }
-        
-        .btn:hover { background: #0056b3; }
-        .btn:disabled { background: #666; opacity: 0.6; }
-        .btn.active { background: #34C759; }
-        
-        #loading {
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            color: white;
-            font-size: 18px;
-            text-align: center;
-            z-index: 100;
-        }
-        
-        .spinner {
-            width: 40px;
-            height: 40px;
-            border: 4px solid rgba(255,255,255,0.3);
-            border-top-color: #007AFF;
-            border-radius: 50%;
-            animation: spin 1s linear infinite;
-            margin: 0 auto 15px;
-        }
-        
-        @keyframes spin { to { transform: rotate(360deg); } }
-        
-        .stat-row {
-            display: flex;
-            justify-content: space-between;
-            margin: 5px 0;
-            font-size: 13px;
-        }
-        
+        .stat-row { display: flex; justify-content: space-between; margin: 6px 0; font-size: 13px; }
         .stat-label { color: #aaa; }
         .stat-value { color: #fff; font-weight: 600; }
+        .stat-value.good { color: #34C759; }
+        .stat-value.warn { color: #FF9500; }
+        .stat-value.bad { color: #FF3B30; }
         
-        #debugInfo {
-            position: absolute;
-            bottom: 20px;
-            right: 20px;
-            font-size: 11px;
-            color: rgba(255,255,255,0.6);
-            max-width: 250px;
-            text-align: right;
-        }
+        .progress-container { width: 100%; height: 8px; background: #333; border-radius: 4px; margin-top: 5px; overflow: hidden; position: relative; }
+        #coverageBar { height: 100%; background: linear-gradient(90deg, #FF3B30 0%, #FF9500 50%, #34C759 100%); width: 0%; transition: width 0.2s ease-out; }
+        #coverageText { position: absolute; right: 5px; top: -18px; font-size: 11px; color: #fff; }
+        
+        .grid-badge { display: inline-block; background: #007AFF; color: white; padding: 2px 8px; border-radius: 10px; font-size: 12px; margin-left: 5px; }
+        .grid-badge.locked { background: #34C759; }
+        
+        .btn { background: #007AFF; color: white; border: none; padding: 12px 24px; border-radius: 10px; font-size: 15px; font-weight: 600; cursor: pointer; transition: all 0.2s; box-shadow: 0 4px 12px rgba(0,122,255,0.3); }
+        .btn:hover { transform: translateY(-2px); box-shadow: 0 6px 16px rgba(0,122,255,0.4); }
+        .btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+        .btn.secondary { background: #5856D6; }
+        .btn.danger { background: #FF3B30; }
+        
+        #loading { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: white; text-align: center; z-index: 100; }
+        .spinner { width: 50px; height: 50px; border: 4px solid rgba(255,255,255,0.2); border-top-color: #007AFF; border-radius: 50%; animation: spin 1s linear infinite; margin-bottom: 15px; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        
+        .corner-indicator { position: absolute; width: 20px; height: 20px; border: 3px solid; border-radius: 50%; transform: translate(-50%, -50%); pointer-events: none; z-index: 5; }
+        .corner-visible { border-color: #34C759; background: rgba(52, 199, 89, 0.3); box-shadow: 0 0 10px #34C759; }
+        .corner-missing { border-color: #FF3B30; background: rgba(255, 59, 48, 0.3); }
+        
+        .star-marker { position: absolute; width: 24px; height: 24px; transform: translate(-50%, -50%); pointer-events: none; z-index: 6; }
+        .star-marker::before { content: '★'; color: #FFD700; font-size: 20px; text-shadow: 0 0 10px rgba(255, 215, 0, 0.8); position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); }
+        
+        #previewMap { position: absolute; bottom: 100px; left: 20px; width: 120px; height: 120px; background: rgba(0,0,0,0.8); border-radius: 8px; border: 2px solid #333; display: none; }
     </style>
 </head>
 <body>
 
 <div id="container">
-    <!-- 加载提示 -->
     <div id="loading">
         <div class="spinner"></div>
-        <div>正在加载 OpenCV 引擎...</div>
-        <div style="font-size: 12px; opacity: 0.7; margin-top: 10px;">首次加载约需 5-10 秒</div>
+        <div style="font-size: 16px; font-weight: 600;">OpenCV 引擎加载中</div>
+        <div style="font-size: 12px; opacity: 0.7; margin-top: 8px;">首次加载约需 3-5 秒...</div>
     </div>
     
-    <!-- 视频输入 -->
     <video id="videoInput" playsinline></video>
-    
-    <!-- 输出画布 -->
     <canvas id="canvasOutput"></canvas>
     
-    <!-- UI 层 -->
+    <!-- 角点指示器容器 -->
+    <div id="cornerContainer"></div>
+    <!-- 星位标记容器 -->
+    <div id="starContainer"></div>
+    
     <div id="ui" style="display: none;">
         <div class="panel" id="statusPanel">
-            <div style="font-weight: 600; margin-bottom: 10px; color: #007AFF;">📹 棋盘检测状态</div>
-            <div class="stat-row">
-                <span class="stat-label">检测状态</span>
-                <span class="stat-value" id="detectStatus">未开始</span>
+            <div style="font-weight: 700; margin-bottom: 12px; color: #007AFF; font-size: 16px;">
+                🎯 智能棋盘识别
             </div>
             <div class="stat-row">
-                <span class="stat-label">棋盘角点</span>
-                <span class="stat-value" id="cornerCount">0</span>
+                <span class="stat-label">棋盘规格</span>
+                <span class="stat-value" id="boardType">
+                    检测中... <span class="grid-badge" id="lockBadge">AUTO</span>
+                </span>
             </div>
             <div class="stat-row">
-                <span class="stat-label">星位标记</span>
-                <span class="stat-value" id="starCount">0</span>
+                <span class="stat-label">视野覆盖率</span>
+                <span class="stat-value" id="coverageValue">0%</span>
             </div>
+            <div class="progress-container">
+                <div id="coverageBar"></div>
+                <span id="coverageText">0%</span>
+            </div>
+            <div class="stat-row" style="margin-top: 10px;">
+                <span class="stat-label">角点可见性</span>
+                <span class="stat-value" id="cornerStatus">0/4</span>
+            </div>
+            <div class="stat-row">
+                <span class="stat-label">星位识别</span>
+                <span class="stat-value" id="starStatus">0/9</span>
+            </div>
+        </div>
+        
+        <div class="panel" id="detailPanel">
+            <div style="font-weight: 600; margin-bottom: 8px; color: #FFD700;">📊 检测详情</div>
             <div class="stat-row">
                 <span class="stat-label">透视质量</span>
-                <span class="stat-value" id="qualityScore">-</span>
+                <span class="stat-value" id="qualityText">-</span>
+            </div>
+            <div class="stat-row">
+                <span class="stat-label">网格置信度</span>
+                <span class="stat-value" id="gridConf">-</span>
+            </div>
+            <div class="stat-row">
+                <span class="stat-label">建议操作</span>
+                <span class="stat-value" id="suggestion">移动相机</span>
             </div>
         </div>
         
-        <div class="panel" id="fpsCounter">
-            FPS: <span id="fps">0</span>
-        </div>
+        <div class="panel" id="fpsCounter">FPS: <span id="fps">0</span></div>
         
-        <div class="panel" id="controls">
-            <button class="btn" id="btnStart" onclick="startCamera()" disabled>启动相机</button>
-            <button class="btn" id="btnPause" onclick="togglePause()" disabled>暂停</button>
-            <button class="btn" onclick="toggleDebug()">调试模式</button>
-        </div>
-        
-        <div id="debugInfo">
-            提示：确保棋盘光线充足、对比度明显<br>
-            支持 9/13/19 路标准棋盘
+        <div id="controls">
+            <button class="btn" id="btnStart" onclick="startCamera()" disabled>🎥 启动相机</button>
+            <button class="btn secondary" onclick="togglePause()" id="btnPause">⏸️ 暂停</button>
+            <button class="btn danger" onclick="resetDetection()">🔄 重置</button>
         </div>
     </div>
 </div>
@@ -202,86 +131,84 @@ let canvas = document.getElementById('canvasOutput');
 let ctx = canvas.getContext('2d');
 let isProcessing = false;
 let isPaused = false;
-let debugMode = false;
-let lastTime = 0;
-let fps = 0;
+let fps = 0, lastTime = 0;
 
-// 检测参数
-const PARAMS = {
-    cannyThreshold1: 50,
-    cannyThreshold2: 150,
-    houghThreshold: 100,
-    minLineLength: 100,
-    maxLineGap: 10,
-    cornerQuality: 0.01,
-    cornerMinDist: 20
+// 检测状态
+let state = {
+    initialized: false,
+    gridSize: 19,      // 9, 13, 或 19
+    locked: false,     // 锁定后不再改变
+    coverage: 0,       // 0-100
+    corners: [],       // 当前检测到的角点
+    visibleCorners: 0, // 可见角点数
+    stars: [],         // 检测到的星位
+    history: [],       // 覆盖率历史（平滑用）
+    lastValidTime: 0   // 上次有效检测时间
 };
 
-// 棋盘状态
-let boardState = {
-    detected: false,
-    corners: [],
-    stars: [],
-    gridSize: 19,
-    homography: null
+// 配置
+const CONFIG = {
+    minAreaRatio: 0.05,      // 最小棋盘面积占比
+    maxAreaRatio: 0.9,       // 最大棋盘面积占比
+    coverageSmoothFrames: 5, // 平滑帧数
+    starThreshold: 0.6,      // 星位检测阈值
+    relockThreshold: 2000    // 重新锁定时间(ms)
 };
 
-// OpenCV 加载完成
 function onOpenCvReady() {
     cv = window.cv;
     document.getElementById('loading').style.display = 'none';
     document.getElementById('ui').style.display = 'block';
     document.getElementById('btnStart').disabled = false;
-    console.log('OpenCV.js 加载完成，版本:', cv.getBuildInformation);
+    console.log('OpenCV 就绪');
 }
 
-// 启动摄像头
 async function startCamera() {
     try {
         const stream = await navigator.mediaDevices.getUserMedia({
-            video: {
-                facingMode: 'environment', // 后置摄像头
+            video: { 
+                facingMode: 'environment',
                 width: { ideal: 1280 },
                 height: { ideal: 720 }
             }
         });
-        
         video.srcObject = stream;
         video.play();
         
-        document.getElementById('btnStart').textContent = '相机运行中';
-        document.getElementById('btnStart').classList.add('active');
-        document.getElementById('btnPause').disabled = false;
+        document.getElementById('btnStart').textContent = '✅ 运行中';
+        document.getElementById('btnStart').disabled = true;
         
-        // 等待视频就绪
         video.onloadedmetadata = () => {
             canvas.width = video.videoWidth;
             canvas.height = video.videoHeight;
             isProcessing = true;
-            requestAnimationFrame(processFrame);
+            requestAnimationFrame(processLoop);
         };
-        
-    } catch (err) {
-        alert('摄像头启动失败: ' + err.message);
+    } catch(err) {
+        alert('相机启动失败: ' + err.message);
     }
 }
 
-// 暂停/继续
 function togglePause() {
     isPaused = !isPaused;
-    document.getElementById('btnPause').textContent = isPaused ? '继续' : '暂停';
+    document.getElementById('btnPause').textContent = isPaused ? '▶️ 继续' : '⏸️ 暂停';
 }
 
-// 切换调试模式
-function toggleDebug() {
-    debugMode = !debugMode;
+function resetDetection() {
+    state.initialized = false;
+    state.locked = false;
+    state.gridSize = 19;
+    state.history = [];
+    document.getElementById('boardType').innerHTML = '检测中... <span class="grid-badge" id="lockBadge">AUTO</span>';
+    document.getElementById('lockBadge').className = 'grid-badge';
+    updateCornerIndicators([]);
+    updateStarMarkers([]);
 }
 
-// 主处理循环
-function processFrame(timestamp) {
+function processLoop(timestamp) {
     if (!isProcessing) return;
     
-    // 计算 FPS
+    // FPS 计算
     if (timestamp - lastTime > 1000) {
         document.getElementById('fps').textContent = fps;
         fps = 0;
@@ -290,316 +217,453 @@ function processFrame(timestamp) {
     fps++;
     
     if (!isPaused && video.readyState === 4) {
-        // 绘制原图
         ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-        
-        // OpenCV 处理
         detectBoard();
     }
     
-    requestAnimationFrame(processFrame);
+    requestAnimationFrame(processLoop);
 }
 
-// 核心检测逻辑
 function detectBoard() {
-    if (!cv) return;
-    
     try {
-        // 读取当前帧到 Mat
+        // 读取帧
         let src = cv.imread(canvas);
         let gray = new cv.Mat();
-        let blurred = new cv.Mat();
-        
-        // 1. 预处理：灰度 + 高斯模糊
         cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
+        
+        // 预处理
+        let blurred = new cv.Mat();
         cv.GaussianBlur(gray, blurred, new cv.Size(5, 5), 0);
         
-        // 2. 边缘检测
-        let edges = new cv.Mat();
-        cv.Canny(blurred, edges, PARAMS.cannyThreshold1, PARAMS.cannyThreshold2);
+        // 自适应阈值（应对光照变化）
+        let binary = new cv.Mat();
+        cv.adaptiveThreshold(blurred, binary, 255, cv.ADAPTIVE_THRESH_GAUSSIAN_C, cv.THRESH_BINARY_INV, 11, 2);
         
-        // 3. 膨胀连接断线
-        let dilated = new cv.Mat();
+        // 形态学操作连接断线
         let kernel = cv.Mat.ones(3, 3, cv.CV_8U);
-        cv.dilate(edges, dilated, kernel);
+        let morph = new cv.Mat();
+        cv.morphologyEx(binary, morph, cv.MORPH_CLOSE, kernel, new cv.Point(-1,-1), 2);
         
-        // 4. 查找轮廓
+        // 查找轮廓
         let contours = new cv.MatVector();
         let hierarchy = new cv.Mat();
-        cv.findContours(dilated, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+        cv.findContours(morph, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
         
-        // 5. 寻找最大四边形（棋盘）
-        let boardContour = findBoardContour(contours);
+        // 寻找最佳棋盘轮廓
+        let bestContour = findBestContour(contours);
         
-        if (boardContour) {
-            // 6. 透视校正
-            let warped = warpPerspective(src, boardContour);
-            
-            // 7. 在校正后的图像上检测星位
-            let stars = detectStars(warped);
-            
-            // 8. 将星位映射回原图并绘制
-            drawResults(src, boardContour, stars);
-            
-            // 9. 更新 UI
-            updateUI(true, boardContour.rows, stars.length);
-            
-            warped.delete();
+        if (bestContour) {
+            processValidBoard(src, bestContour, gray);
         } else {
-            updateUI(false, 0, 0);
+            handleNoBoard();
         }
         
         // 清理
-        src.delete(); gray.delete(); blurred.delete();
-        edges.delete(); dilated.delete(); kernel.delete();
-        contours.delete(); hierarchy.delete();
+        src.delete(); gray.delete(); blurred.delete(); binary.delete();
+        morph.delete(); kernel.delete(); contours.delete(); hierarchy.delete();
+        if(bestContour) bestContour.delete();
         
-    } catch (e) {
+    } catch(e) {
         console.error('检测错误:', e);
     }
 }
 
-// 寻找棋盘轮廓
-function findBoardContour(contours) {
-    let maxArea = 0;
-    let bestContour = null;
+function findBestContour(contours) {
+    let best = null;
+    let bestScore = 0;
+    const imgArea = canvas.width * canvas.height;
     
     for (let i = 0; i < contours.size(); i++) {
         let cnt = contours.get(i);
         let area = cv.contourArea(cnt);
+        let areaRatio = area / imgArea;
         
-        // 过滤太小的区域
-        if (area < canvas.width * canvas.height * 0.1) continue;
+        // 面积过滤
+        if (areaRatio < CONFIG.minAreaRatio || areaRatio > CONFIG.maxAreaRatio) {
+            cnt.delete();
+            continue;
+        }
         
-        // 近似多边形
+        // 多边形近似
         let peri = cv.arcLength(cnt, true);
         let approx = new cv.Mat();
         cv.approxPolyDP(cnt, approx, 0.02 * peri, true);
         
-        // 寻找四边形
-        if (approx.rows === 4 && area > maxArea) {
-            maxArea = area;
-            bestContour = approx.clone();
+        // 必须是四边形
+        if (approx.rows !== 4) {
+            approx.delete();
+            cnt.delete();
+            continue;
+        }
+        
+        // 计算矩形度（越接近矩形分数越高）
+        let rect = cv.minAreaRect(cnt);
+        let rectArea = rect.size.width * rect.size.height;
+        let rectangularity = area / rectArea;
+        
+        // 综合评分：面积适中 + 矩形度高
+        let score = areaRatio * rectangularity;
+        
+        if (score > bestScore) {
+            if (best) best.delete();
+            best = approx.clone();
+            bestScore = score;
         }
         
         approx.delete();
         cnt.delete();
     }
     
-    return bestContour;
+    return best;
 }
 
-// 透视校正
-function warpPerspective(src, contour) {
-    // 获取四个角点
-    let points = [];
+function processValidBoard(src, contour, gray) {
+    // 提取角点
+    let corners = [];
     for (let i = 0; i < 4; i++) {
-        points.push({
+        corners.push({
             x: contour.data32S[i * 2],
             y: contour.data32S[i * 2 + 1]
         });
     }
     
-    // 排序角点：左上、右上、右下、左下
-    points.sort((a, b) => a.y - b.y);
-    let top = points.slice(0, 2).sort((a, b) => a.x - b.x);
-    let bottom = points.slice(2).sort((a, b) => a.x - b.x);
-    let ordered = [top[0], top[1], bottom[1], bottom[0]];
+    // 排序：左上、右上、右下、左下
+    corners = sortCorners(corners);
+    state.corners = corners;
     
-    // 目标正方形
-    let size = 800;
-    let dstPoints = cv.matFromArray(4, 1, cv.CV_32FC2, [
-        0, 0,
-        size, 0,
-        size, size,
-        0, size
+    // 计算透视变换
+    const size = 800;
+    let srcPts = cv.matFromArray(4, 1, cv.CV_32FC2, [
+        corners[0].x, corners[0].y,
+        corners[1].x, corners[1].y,
+        corners[2].x, corners[2].y,
+        corners[3].x, corners[3].y
     ]);
+    let dstPts = cv.matFromArray(4, 1, cv.CV_32FC2, [0, 0, size, 0, size, size, 0, size]);
+    let M = cv.getPerspectiveTransform(srcPts, dstPts);
+    let invM = cv.getPerspectiveTransform(dstPts, srcPts);
     
-    let srcPoints = cv.matFromArray(4, 1, cv.CV_32FC2, [
-        ordered[0].x, ordered[0].y,
-        ordered[1].x, ordered[1].y,
-        ordered[2].x, ordered[2].y,
-        ordered[3].x, ordered[3].y
-    ]);
-    
-    // 计算变换矩阵
-    let M = cv.getPerspectiveTransform(srcPoints, dstPoints);
+    // 透视校正
     let warped = new cv.Mat();
-    cv.warpPerspective(src, warped, M, new cv.Size(size, size));
+    cv.warpPerspective(gray, warped, M, new cv.Size(size, size));
     
-    // 保存角点供后续使用
-    boardState.corners = ordered;
+    // 首次检测：判定路数
+    if (!state.initialized) {
+        detectGridSize(warped);
+    }
     
-    M.delete(); srcPoints.delete(); dstPoints.delete();
+    // 计算覆盖率（基于角点可见性和网格完整性）
+    let coverage = calculateCoverage(warped, corners);
+    state.coverage = smoothCoverage(coverage);
     
-    return warped;
+    // 检测星位
+    let stars = detectStars(warped, invM);
+    state.stars = stars;
+    
+    // 绘制
+    drawBoardOverlay(corners, invM);
+    updateCornerIndicators(corners);
+    updateStarMarkers(stars);
+    updateUI(true);
+    
+    // 清理
+    warped.delete(); M.delete(); invM.delete(); srcPts.delete(); dstPts.delete();
 }
 
-// 检测星位（9个黑点）
-function detectStars(warped) {
-    let gray = new cv.Mat();
-    cv.cvtColor(warped, gray, cv.COLOR_RGBA2GRAY);
+function sortCorners(pts) {
+    // 按 y 排序，分为上下两组
+    pts.sort((a, b) => a.y - b.y);
+    let top = pts.slice(0, 2).sort((a, b) => a.x - b.x);
+    let bottom = pts.slice(2).sort((a, b) => a.x - b.x);
+    return [top[0], top[1], bottom[1], bottom[0]]; // 左上、右上、右下、左下
+}
+
+function detectGridSize(warped) {
+    // 使用 Hough 线检测统计线条数量
+    let edges = new cv.Mat();
+    cv.Canny(warped, edges, 50, 150);
     
-    // 二值化
+    let lines = new cv.Mat();
+    cv.HoughLinesP(edges, lines, 1, Math.PI / 180, 50, 100, 10);
+    
+    // 分类横竖线
+    let horizontal = 0, vertical = 0;
+    for (let i = 0; i < lines.rows; i++) {
+        let x1 = lines.data32S[i * 4];
+        let y1 = lines.data32S[i * 4 + 1];
+        let x2 = lines.data32S[i * 4 + 2];
+        let y2 = lines.data32S[i * 4 + 3];
+        
+        let angle = Math.abs(Math.atan2(y2 - y1, x2 - x1) * 180 / Math.PI);
+        if (angle < 20 || angle > 160) horizontal++;
+        else if (angle > 70 && angle < 110) vertical++;
+    }
+    
+    // 根据线数判定路数（考虑检测误差）
+    let avgLines = (horizontal + vertical) / 2;
+    let detectedSize = 19;
+    
+    if (avgLines < 15) detectedSize = 9;
+    else if (avgLines < 25) detectedSize = 13;
+    else detectedSize = 19;
+    
+    state.gridSize = detectedSize;
+    state.initialized = true;
+    state.locked = true;
+    
+    // 更新 UI
+    let badge = document.getElementById('lockBadge');
+    badge.textContent = 'LOCKED';
+    badge.className = 'grid-badge locked';
+    document.getElementById('boardType').innerHTML = `${detectedSize} 路棋盘 ${badge.outerHTML}`;
+    
+    edges.delete(); lines.delete();
+}
+
+function calculateCoverage(warped, corners) {
+    // 基于多个因素计算覆盖率
+    
+    // 1. 角点是否在画面内
+    let visibleCorners = corners.filter(p => 
+        p.x > 50 && p.x < canvas.width - 50 && 
+        p.y > 50 && p.y < canvas.height - 50
+    ).length;
+    state.visibleCorners = visibleCorners;
+    
+    // 2. 棋盘在画面中的面积占比
+    let boardArea = Math.abs(
+        (corners[0].x * corners[1].y + corners[1].x * corners[2].y + 
+         corners[2].x * corners[3].y + corners[3].x * corners[0].y) -
+        (corners[0].y * corners[1].x + corners[1].y * corners[2].x + 
+         corners[2].y * corners[3].x + corners[3].y * corners[0].x)
+    ) / 2;
+    let areaRatio = boardArea / (canvas.width * canvas.height);
+    
+    // 3. 内部网格清晰度（边缘密度）
+    let edges = new cv.Mat();
+    cv.Canny(warped, edges, 80, 200);
+    let edgeDensity = cv.countNonZero(edges) / (warped.rows * warped.cols);
+    edges.delete();
+    
+    // 综合计算（角点权重最高）
+    let coverage = (visibleCorners / 4) * 60 + 
+                   Math.min(areaRatio * 200, 30) + 
+                   Math.min(edgeDensity * 1000, 10);
+    
+    return Math.min(100, Math.round(coverage));
+}
+
+function smoothCoverage(current) {
+    state.history.push(current);
+    if (state.history.length > CONFIG.coverageSmoothFrames) {
+        state.history.shift();
+    }
+    // 使用中位数滤波抗抖动
+    let sorted = [...state.history].sort((a, b) => a - b);
+    return sorted[Math.floor(sorted.length / 2)];
+}
+
+function detectStars(warped, invM) {
+    // 在矫正后的图像上检测黑点（星位）
     let binary = new cv.Mat();
-    cv.adaptiveThreshold(gray, binary, 255, cv.ADAPTIVE_THRESH_GAUSSIAN_C, cv.THRESH_BINARY_INV, 11, 2);
+    cv.threshold(warped, binary, 80, 255, cv.THRESH_BINARY_INV);
     
-    // 查找圆/斑点（星位）
-    let circles = new cv.Mat();
-    cv.HoughCircles(gray, circles, cv.HOUGH_GRADIENT, 1, 30, 50, 20, 5, 30);
+    // 查找轮廓
+    let contours = new cv.MatVector();
+    let hierarchy = new cv.Mat();
+    cv.findContours(binary, contours, hierarchy, cv.RETR_LIST, cv.CHAIN_APPROX_SIMPLE);
     
     let stars = [];
-    let size = warped.rows;
-    let cellSize = size / 18; // 19路棋盘
+    const size = warped.rows;
+    const step = size / (state.gridSize - 1);
     
-    // 验证检测到的圆是否在标准星位位置
-    const starPositions = [
-        [3, 3], [3, 9], [3, 15],
-        [9, 3], [9, 9], [9, 15],
-        [15, 3], [15, 9], [15, 15]
-    ];
+    // 标准星位位置
+    let starPositions = getStarPositions(state.gridSize);
     
-    for (let i = 0; i < circles.cols; i++) {
-        let x = circles.data32F[i * 3];
-        let y = circles.data32F[i * 3 + 1];
-        let r = circles.data32F[i * 3 + 2];
+    for (let i = 0; i < contours.size(); i++) {
+        let cnt = contours.get(i);
+        let area = cv.contourArea(cnt);
         
-        // 转换为网格坐标
-        let gridX = Math.round(x / cellSize);
-        let gridY = Math.round(y / cellSize);
+        // 过滤大小（星位大小约为 cell 的 20-40%）
+        let expectedArea = Math.PI * Math.pow(step * 0.15, 2);
+        if (area < expectedArea * 0.3 || area > expectedArea * 3) {
+            cnt.delete();
+            continue;
+        }
         
-        // 检查是否匹配标准星位
+        // 获取中心
+        let moments = cv.moments(cnt);
+        let cx = moments.m10 / moments.m00;
+        let cy = moments.m01 / moments.m00;
+        
+        // 检查是否接近标准星位
+        let gridX = Math.round(cx / step);
+        let gridY = Math.round(cy / step);
+        
         let isStar = starPositions.some(pos => 
-            Math.abs(pos[0] - gridX) <= 1 && Math.abs(pos[1] - gridY) <= 1
+            Math.abs(pos.x - gridX) <= 1 && Math.abs(pos.y - gridY) <= 1
         );
         
         if (isStar) {
-            stars.push({ x, y, gridX, gridY, r });
+            // 映射回原图坐标
+            let pt = cv.matFromArray(1, 1, cv.CV_32FC2, [cx, cy]);
+            let dst = new cv.Mat();
+            cv.perspectiveTransform(pt, dst, invM);
+            
+            stars.push({
+                x: dst.data32F[0],
+                y: dst.data32F[1],
+                gridX: gridX,
+                gridY: gridY
+            });
+            
+            pt.delete(); dst.delete();
         }
+        
+        cnt.delete();
     }
     
-    gray.delete(); binary.delete(); circles.delete();
+    binary.delete(); contours.delete(); hierarchy.delete();
     
-    return stars;
+    // 去重（同一星位可能检测多次）
+    return stars.filter((star, idx, self) => 
+        idx === self.findIndex(s => s.gridX === star.gridX && s.gridY === star.gridY)
+    );
 }
 
-// 绘制结果
-function drawResults(src, contour, stars) {
-    // 绘制棋盘轮廓
-    ctx.strokeStyle = '#00ff00';
-    ctx.lineWidth = 3;
+function getStarPositions(size) {
+    // 返回标准星位坐标
+    if (size === 9) return [{x:2,y:2}, {x:2,y:6}, {x:4,y:4}, {x:6,y:2}, {x:6,y:6}];
+    if (size === 13) return [
+        {x:3,y:3}, {x:3,y:9}, {x:6,y:6}, {x:9,y:3}, {x:9,y:9}
+    ];
+    // 19路
+    return [
+        {x:3,y:3}, {x:3,y:9}, {x:3,y:15},
+        {x:9,y:3}, {x:9,y:9}, {x:9,y:15},
+        {x:15,y:3}, {x:15,y:9}, {x:15,y:15}
+    ];
+}
+
+function drawBoardOverlay(corners, invM) {
+    // 绘制棋盘边框
+    ctx.strokeStyle = '#007AFF';
+    ctx.lineWidth = 4;
     ctx.beginPath();
-    
-    for (let i = 0; i < 4; i++) {
-        let x = contour.data32S[i * 2];
-        let y = contour.data32S[i * 2 + 1];
-        if (i === 0) ctx.moveTo(x, y);
-        else ctx.lineTo(x, y);
-    }
+    ctx.moveTo(corners[0].x, corners[0].y);
+    corners.forEach((p, i) => {
+        if (i > 0) ctx.lineTo(p.x, p.y);
+    });
     ctx.closePath();
     ctx.stroke();
     
-    // 绘制角点
-    ctx.fillStyle = '#ff0000';
-    for (let i = 0; i < 4; i++) {
-        let x = contour.data32S[i * 2];
-        let y = contour.data32S[i * 2 + 1];
+    // 绘制完整网格线
+    const size = 800;
+    const step = size / (state.gridSize - 1);
+    
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.7)';
+    ctx.lineWidth = 1.5;
+    
+    // 生成所有网格线端点
+    let lines = [];
+    for (let i = 0; i < state.gridSize; i++) {
+        // 横线
+        lines.push(0, i*step, size, i*step);
+        // 竖线
+        lines.push(i*step, 0, i*step, size);
+    }
+    
+    // 批量变换并绘制
+    let srcMat = cv.matFromArray(lines.length/2, 1, cv.CV_32FC2, lines);
+    let dstMat = new cv.Mat();
+    cv.perspectiveTransform(srcMat, dstMat, invM);
+    
+    for (let i = 0; i < dstMat.rows; i++) {
+        let x1 = dstMat.data32F[i*2];
+        let y1 = dstMat.data32F[i*2+1];
+        let x2 = dstMat.data32F[(i+1)*2];
+        let y2 = dstMat.data32F[(i+1)*2+1];
+        
         ctx.beginPath();
-        ctx.arc(x, y, 8, 0, Math.PI * 2);
-        ctx.fill();
-        
-        // 标注编号
-        ctx.fillStyle = '#fff';
-        ctx.font = 'bold 16px sans-serif';
-        ctx.fillText(String(i+1), x + 10, y - 10);
-        ctx.fillStyle = '#ff0000';
+        ctx.moveTo(x1, y1);
+        ctx.lineTo(x2, y2);
+        ctx.stroke();
     }
     
-    // 绘制星位（映射回原图坐标）
-    if (stars.length > 0 && boardState.corners.length === 4) {
-        // 计算逆透视变换
-        let size = 800;
-        let dstPoints = cv.matFromArray(4, 1, cv.CV_32FC2, [0, 0, size, 0, size, size, 0, size]);
-        let srcPoints = cv.matFromArray(4, 1, cv.CV_32FC2, [
-            boardState.corners[0].x, boardState.corners[0].y,
-            boardState.corners[1].x, boardState.corners[1].y,
-            boardState.corners[2].x, boardState.corners[2].y,
-            boardState.corners[3].x, boardState.corners[3].y
-        ]);
-        
-        let M = cv.getPerspectiveTransform(dstPoints, srcPoints);
-        
-        stars.forEach((star, idx) => {
-            // 变换坐标
-            let pt = cv.matFromArray(1, 1, cv.CV_32FC2, [star.x, star.y]);
-            let transformed = new cv.Mat();
-            cv.perspectiveTransform(pt, transformed, M);
-            
-            let tx = transformed.data32F[0];
-            let ty = transformed.data32F[1];
-            
-            // 绘制星位标记
-            ctx.strokeStyle = '#007AFF';
-            ctx.fillStyle = 'rgba(0, 122, 255, 0.3)';
-            ctx.lineWidth = 2;
-            
-            // 外圈
-            ctx.beginPath();
-            ctx.arc(tx, ty, 15, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.stroke();
-            
-            // 十字
-            ctx.beginPath();
-            ctx.moveTo(tx - 10, ty);
-            ctx.lineTo(tx + 10, ty);
-            ctx.moveTo(tx, ty - 10);
-            ctx.lineTo(tx, ty + 10);
-            ctx.stroke();
-            
-            // 编号
-            ctx.fillStyle = '#fff';
-            ctx.font = 'bold 12px sans-serif';
-            ctx.fillText(`★${idx+1}`, tx + 18, ty + 4);
-            
-            pt.delete(); transformed.delete();
-        });
-        
-        M.delete(); dstPoints.delete(); srcPoints.delete();
-    }
-    
-    // 调试信息
-    if (debugMode) {
-        ctx.fillStyle = 'rgba(0,0,0,0.7)';
-        ctx.fillRect(10, canvas.height - 100, 300, 90);
-        ctx.fillStyle = '#0f0';
-        ctx.font = '12px monospace';
-        ctx.fillText(`Contours detected`, 20, canvas.height - 80);
-        ctx.fillText(`Board area: ${cv.contourArea(contour).toFixed(0)} px²`, 20, canvas.height - 60);
-        ctx.fillText(`Stars found: ${stars.length}/9`, 20, canvas.height - 40);
-        ctx.fillText(`Confidence: ${(stars.length/9*100).toFixed(0)}%`, 20, canvas.height - 20);
-    }
+    srcMat.delete(); dstMat.delete();
 }
 
-// 更新 UI
-function updateUI(detected, corners, stars) {
-    document.getElementById('detectStatus').textContent = detected ? '✅ 已检测' : '❌ 未检测';
-    document.getElementById('detectStatus').style.color = detected ? '#34C759' : '#FF3B30';
-    document.getElementById('cornerCount').textContent = corners;
-    document.getElementById('starCount').textContent = `${stars}/9`;
+function updateCornerIndicators(corners) {
+    const container = document.getElementById('cornerContainer');
+    container.innerHTML = '';
     
-    let quality = '-';
+    const names = ['左上', '右上', '右下', '左下'];
+    corners.forEach((corner, idx) => {
+        let div = document.createElement('div');
+        div.className = 'corner-indicator corner-visible';
+        div.style.left = corner.x + 'px';
+        div.style.top = corner.y + 'px';
+        div.title = names[idx];
+        container.appendChild(div);
+    });
+}
+
+function updateStarMarkers(stars) {
+    const container = document.getElementById('starContainer');
+    container.innerHTML = '';
+    
+    stars.forEach(star => {
+        let div = document.createElement('div');
+        div.className = 'star-marker';
+        div.style.left = star.x + 'px';
+        div.style.top = star.y + 'px';
+        container.appendChild(div);
+    });
+}
+
+function handleNoBoard() {
+    state.corners = [];
+    state.visibleCorners = 0;
+    state.stars = [];
+    updateCornerIndicators([]);
+    updateStarMarkers([]);
+    updateUI(false);
+}
+
+function updateUI(detected) {
+    // 覆盖率
+    let cov = state.coverage;
+    document.getElementById('coverageValue').textContent = cov + '%';
+    document.getElementById('coverageValue').className = 'stat-value ' + (cov > 80 ? 'good' : cov > 40 ? 'warn' : 'bad');
+    document.getElementById('coverageBar').style.width = cov + '%';
+    document.getElementById('coverageText').textContent = cov + '%';
+    
+    // 角点
+    document.getElementById('cornerStatus').textContent = `${state.visibleCorners}/4`;
+    
+    // 星位
+    let starCount = state.stars.length;
+    let expectedStars = state.gridSize === 19 ? 9 : state.gridSize === 13 ? 5 : 5;
+    document.getElementById('starStatus').textContent = `${starCount}/${expectedStars}`;
+    
+    // 详情面板
     if (detected) {
-        if (stars >= 7) quality = '优秀';
-        else if (stars >= 5) quality = '良好';
-        else if (stars >= 3) quality = '一般';
-        else quality = '较差';
+        let quality = state.coverage > 90 ? '优秀' : state.coverage > 70 ? '良好' : '一般';
+        document.getElementById('qualityText').textContent = quality;
+        document.getElementById('qualityText').className = 'stat-value ' + (quality === '优秀' ? 'good' : quality === '良好' ? 'warn' : 'bad');
+        
+        let conf = (starCount / expectedStars * 100).toFixed(0) + '%';
+        document.getElementById('gridConf').textContent = conf;
+        
+        let suggestion = state.coverage < 60 ? '请靠近棋盘' : 
+                        state.visibleCorners < 4 ? '调整角度' : 
+                        starCount < expectedStars ? '改善光线' : '检测正常';
+        document.getElementById('suggestion').textContent = suggestion;
+    } else {
+        document.getElementById('qualityText').textContent = '-';
+        document.getElementById('gridConf').textContent = '-';
+        document.getElementById('suggestion').textContent = '寻找棋盘...';
     }
-    document.getElementById('qualityScore').textContent = quality;
-    document.getElementById('qualityScore').style.color = 
-        quality === '优秀' ? '#34C759' : 
-        quality === '良好' ? '#007AFF' : 
-        quality === '一般' ? '#FF9500' : '#FF3B30';
 }
 
 // 清理
